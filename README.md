@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="icon.png" alt="UGTBrowser Icon" width="128"/>
+  <img src="icon256.png" alt="UGTBrowser Icon" width="128"/>
 </div>
 
 <div align="center">
@@ -8,7 +8,12 @@
 
 </div>
 UGTBrowser is a Chrome extension that allows you to translate highlighted text on any webpage using your own API keys for various Large Language Model (LLM) providers.
-
+<br>
+<div align="center">
+  <a href="media/ugtbrowser_1.png"><img src="media/ugtbrowser_1.png" alt="UGTBrowser Screenshot 1" width="200"/></a>
+  <a href="media/ugtbrowser_2.png"><img src="media/ugtbrowser_2.png" alt="UGTBrowser Screenshot 2" width="200"/></a>
+</div>
+<br>
 Also check out [UGTLive](https://github.com/SethRobinson/UGTLive) (Good at translating live video/audio)
 
 ## Why tho

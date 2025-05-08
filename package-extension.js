@@ -60,8 +60,12 @@ const filesToInclude = [
   'options.html',
   'options.js',
   'options.css',
-  'icon.png',
-  'privacy_policy.md'
+  'icon256.png',
+  'icon48.png',
+  'icon128.png',
+  'privacy_policy.md',
+  'LICENSE',
+  'README.md'
   // Add any other files or folders like 'images/', 'lib/', etc.
 ];
 
