@@ -125,7 +125,7 @@ function createContextMenus(settings = {}) {
 
 chrome.runtime.onInstalled.addListener(() => {
   // Fetch all relevant settings to build the initial context menu title correctly
-  chrome.storage.sync.get([
+  chrome.storage.local.get([
     'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
   ], (fullSettings) => {
     const effectiveSettings = {
@@ -140,7 +140,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Update menu title when settings change
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync") {
+  if (area === "local") {
     // Check if any of the relevant settings changed
     const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'];
     let needsUpdate = false;
@@ -153,7 +153,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
     if (needsUpdate) {
       // Fetch all current settings to rebuild the title correctly
-      chrome.storage.sync.get([
+      chrome.storage.local.get([
         'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
       ], (fullSettings) => {
         // The `settings` object from storage might be nested or flat depending on how it was saved.
@@ -308,7 +308,7 @@ async function checkIfContentScriptLoaded(tabId) {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_ID && info.selectionText) {
-    chrome.storage.sync.get(null, async (data) => { // storage.sync.get callback is already async
+    chrome.storage.local.get(null, async (data) => { // storage.local.get callback is already async
       const settings = data.settings || {};
       const messagePayload = { // Renamed to avoid confusion
         type: "TRANSLATE_SELECTION",

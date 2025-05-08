@@ -152,7 +152,7 @@ function initializeOptionsPage() {
             "<ul>" +
             "<li>'Make the translation sound like a pirate.'</li>" +
             "<li>'Summarize the text in one sentence after translating.'</li>" +
-            "<li>'Translate to English and also explain any cultural nuances found in the original text.'</li>" +
+            "<li>'After translating, explain any cultural nuances found in the original text.'</li>" +
             "<li>'After translating, list any proper nouns found in the text.'</li>" +
             "</ul>" +
             "<p>If left blank, no additional creative task will be included.</p>"
@@ -238,7 +238,7 @@ function restoreOptions() {
     keysToGet[`${provider}Prompt`] = defaultPrompts[provider]; // Default to default if not found
   });
 
-  chrome.storage.sync.get(keysToGet, (items) => {
+  chrome.storage.local.get(keysToGet, (items) => {
     providerSelect.value = items.selectedProvider;
     openAIApiKeyInput.value = items.openaiApiKey;
     anthropicApiKeyInput.value = items.anthropicApiKey;
@@ -336,7 +336,7 @@ function saveOptions() {
     }
   };
   
-  chrome.storage.sync.set(settingsToSave, () => {
+  chrome.storage.local.set(settingsToSave, () => {
     statusDiv.textContent = 'Settings saved.';
     statusDiv.style.color = 'green'; 
     statusDiv.classList.add('visible');
@@ -367,7 +367,7 @@ function updateProviderFields() {
   
   // Load the UNRESOLVED prompt template for this provider into the textarea
   const providerPromptKey = `${provider}Prompt`;
-  chrome.storage.sync.get([providerPromptKey], (items) => {
+  chrome.storage.local.get([providerPromptKey], (items) => {
     promptTemplateTextarea.value = items[providerPromptKey] || defaultPrompts[provider];
   });
 }

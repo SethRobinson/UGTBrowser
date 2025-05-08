@@ -32,7 +32,7 @@ Note:  I used "UGT" in the name because I might add more game-specific features 
 
 *   Translate selected text using the latest LLM models (Open, Anthropic, Google)
 * Support for a secondary "Creative task", for example, summarize everything into a poem at the end or explain cultural notes.
-*   Securely stores your API keys and settings locally in your browser.  
+*   Securely stores your API keys and settings locally in your browser. These are not synced with the cloud or other devices.
 *   Nothing is sent out except the text to the LLM providers you're using.
 *   Customizable prompt template for advanced users.
 *   Context menu integration for easy access.
@@ -75,7 +75,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Privacy
 
-Your privacy is important. UGTBrowser does not collect or store any personal data on its own servers. API keys are stored locally. For more details, please see our [Privacy Policy](privacy_policy.md).
+Your privacy is important. UGTBrowser does not collect or store any personal data on its own servers. API keys and all settings are stored locally in your browser using `chrome.storage.local` and are not synced across devices. For more details, please see our [Privacy Policy](privacy_policy.md).
 
 ## Todo
 
