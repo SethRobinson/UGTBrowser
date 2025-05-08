@@ -277,4 +277,16 @@ ol {
   border-top: 1px solid #eee; /* Consider using var(--border-color) */
   padding-top: 15px;
   margin-top: 15px;
+}
+
+.help-icon {
+  cursor: help;
+  margin-left: 5px;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.disabled-section {
+  opacity: 0.5;
+  pointer-events: none;
 } 

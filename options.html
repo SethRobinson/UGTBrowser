@@ -44,93 +44,58 @@
       <div class="settings-panel">
         <div class="settings-section">
           <h2>Translation Settings</h2>
-          <div class="form-group" id="langWrapper">
-            <label for="targetLang">Target Language:</label>
-            <select id="targetLang" class="form-control">
-              <option value="English">English</option>
-              <option value="Spanish">Spanish</option>
-              <option value="French">French</option>
-              <option value="German">German</option>
-              <option value="Japanese">Japanese</option>
-              <option value="Chinese">Chinese (Simplified)</option>
-              <option value="ChineseTraditional">Chinese (Traditional)</option>
-              <option value="Korean">Korean</option>
-              <option value="Russian">Russian</option>
-              <option value="Arabic">Arabic</option>
-              <option value="Hindi">Hindi</option>
-              <option value="Portuguese">Portuguese</option>
-              <option value="Italian">Italian</option>
-              <option value="Dutch">Dutch</option>
-              <option value="Swedish">Swedish</option>
-              <option value="Norwegian">Norwegian</option>
-              <option value="Danish">Danish</option>
-              <option value="Finnish">Finnish</option>
-              <option value="Polish">Polish</option>
-              <option value="Turkish">Turkish</option>
-              <option value="Hebrew">Hebrew</option>
-              <option value="Thai">Thai</option>
-              <option value="Vietnamese">Vietnamese</option>
-              <option value="Indonesian">Indonesian</option>
-              <option value="Malay">Malay</option>
-              <option value="Greek">Greek</option>
-              <option value="Czech">Czech</option>
-              <option value="Hungarian">Hungarian</option>
-              <option value="Romanian">Romanian</option>
-              <option value="Ukrainian">Ukrainian</option>
-              <option value="Slovak">Slovak</option>
-              <option value="Croatian">Croatian</option>
-              <option value="Catalan">Catalan</option>
-              <option value="Basque">Basque</option>
-              <option value="Afrikaans">Afrikaans</option>
-              <option value="Swahili">Swahili</option>
-              <option value="Esperanto">Esperanto</option>
-              <option value="Latin">Latin</option>
-              <option value="Welsh">Welsh</option>
-              <option value="Irish">Irish</option>
-              <option value="Scottish Gaelic">Scottish Gaelic</option>
-              <option value="Icelandic">Icelandic</option>
-              <option value="Maltese">Maltese</option>
-              <option value="Estonian">Estonian</option>
-              <option value="Latvian">Latvian</option>
-              <option value="Lithuanian">Lithuanian</option>
-              <option value="Slovenian">Slovenian</option>
-              <option value="Albanian">Albanian</option>
-              <option value="Macedonian">Macedonian</option>
-              <option value="Serbian">Serbian</option>
-              <option value="Bulgarian">Bulgarian</option>
-              <option value="Bengali">Bengali</option>
-              <option value="Gujarati">Gujarati</option>
-              <option value="Kannada">Kannada</option>
-              <option value="Malayalam">Malayalam</option>
-              <option value="Marathi">Marathi</option>
-              <option value="Nepali">Nepali</option>
-              <option value="Oriya">Oriya</option>
-              <option value="Punjabi">Punjabi</option>
-              <option value="Sindhi">Sindhi</option>
-              <option value="Tamil">Tamil</option>
-              <option value="Telugu">Telugu</option>
-              <option value="Urdu">Urdu</option>
-              <option value="Persian">Persian (Farsi)</option>
-              <option value="Pashto">Pashto</option>
-              <option value="Kurdish">Kurdish</option>
-              <option value="Tagalog">Tagalog (Filipino)</option>
-              <option value="Javanese">Javanese</option>
-              <option value="Sundanese">Sundanese</option>
-              <option value="Uzbek">Uzbek</option>
-              <option value="Kazakh">Kazakh</option>
-              <option value="Azerbaijani">Azerbaijani</option>
-              <option value="Armenian">Armenian</option>
-              <option value="Georgian">Georgian</option>
-              <option value="Amharic">Amharic</option>
-              <option value="Somali">Somali</option>
-              <option value="Yoruba">Yoruba</option>
-              <option value="Igbo">Igbo</option>
-              <option value="Hausa">Hausa</option>
-              <option value="Zulu">Zulu</option>
-              <option value="Xhosa">Xhosa</option>
-              <option value="Sesotho">Sesotho</option>
-              <option value="Setswana">Setswana</option>
-            </select>
+          <div class="option-group">
+            <label>
+              <input type="radio" name="languageMode" value="standard" checked>
+              Standard Language
+            </label>
+            <div id="standardLanguageSection">
+              <label for="language">Select Language:</label>
+              <select id="language">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="zh-CN">Chinese (Simplified)</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="ru">Russian</option>
+                <option value="ar">Arabic</option>
+                <option value="hi">Hindi</option>
+                <option value="nl">Dutch</option>
+                <option value="sv">Swedish</option>
+                <option value="fi">Finnish</option>
+                <option value="da">Danish</option>
+                <option value="no">Norwegian</option>
+                <option value="pl">Polish</option>
+                <option value="tr">Turkish</option>
+                <option value="el">Greek</option>
+                <option value="he">Hebrew</option>
+                <option value="id">Indonesian</option>
+                <option value="ms">Malay</option>
+                <option value="th">Thai</option>
+                <option value="vi">Vietnamese</option>
+                <option value="cs">Czech</option>
+                <option value="hu">Hungarian</option>
+                <option value="ro">Romanian</option>
+                <option value="sk">Slovak</option>
+                <option value="uk">Ukrainian</option>
+                <!-- Add more languages as needed -->
+              </select>
+            </div>
+          </div>
+
+          <div class="option-group">
+            <label>
+              <input type="radio" name="languageMode" value="custom">
+              Custom Language
+            </label>
+            <div id="customLanguageSection">
+              <input type="text" id="customLanguage" placeholder="e.g., English, but like a pirate">
+              <span id="customHelp" class="help-icon" title="Enter any custom language prompt. For example: 'English, but everyone is talking like a pirate', 'Piglatin', or 'Japanese, but with furigana on all the kanji'. Be creative!">?</span>
+            </div>
           </div>
         </div>
 
