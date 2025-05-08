@@ -19,7 +19,7 @@ Robinson Technologies Corporation **does not** collect, store, or transmit any o
 To use the translation features of UGTBrowser, you are required to provide your own API keys for the respective LLM services you wish to use (OpenAI, Anthropic, Google Gemini).
 
 *   **API Keys:**
-    *   Your API keys are stored locally on your computer using Chrome's storage API (`chrome.storage.sync` or `chrome.storage.local`).
+    *   Your API keys are stored locally on your computer using Chrome's storage API (`chrome.storage.local`). They are not synced with the cloud or across your devices.
     *   These keys are used solely by the extension to authenticate your requests directly with the chosen LLM provider.
     *   **Your API keys are never transmitted to Robinson Technologies Corporation or any other third party by the UGTBrowser extension itself.**
 *   **Highlighted Text for Translation:**
