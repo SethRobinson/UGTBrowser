@@ -248,7 +248,27 @@ function restoreOptions() {
 
     const currentLanguageMode = items.languageMode;
     document.querySelector(`input[name="languageMode"][value="${currentLanguageMode}"]`).checked = true;
-    languageSelect.value = items.targetLanguage;
+    
+    // Restore standard language selection based on display text
+    if (items.targetLanguage) {
+      let found = false;
+      for (let i = 0; i < languageSelect.options.length; i++) {
+        if (languageSelect.options[i].text === items.targetLanguage) {
+          languageSelect.value = languageSelect.options[i].value;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        // Fallback if the saved text is not found (e.g. language list changed)
+        // Set to default or leave as is (which might be the first option)
+        if (languageSelect.options.length > 0) languageSelect.value = languageSelect.options[0].value;
+      }
+    } else if (languageSelect.options.length > 0) {
+      // Default if nothing is stored for targetLanguage
+      languageSelect.value = languageSelect.options[0].value; 
+    }
+
     customLanguageInput.value = items.customLanguage;
     
     updateProviderFields(); // Updates API key visibility, model dropdowns, and loads the provider's prompt template
@@ -289,7 +309,8 @@ function saveOptions() {
   }
   
   const languageMode = document.querySelector('input[name="languageMode"]:checked').value;
-  const standardLanguage = languageSelect.value;
+  const standardLanguageValue = languageSelect.value; // Keep the value for other uses if needed
+  const standardLanguageText = languageSelect.options[languageSelect.selectedIndex]?.text || standardLanguageValue; // Get the display text
   const customLangText = customLanguageInput.value.trim();
 
   const settingsToSave = {
@@ -303,14 +324,14 @@ function saveOptions() {
     globalCreativeTask: creativeTaskText, 
     supportsTemperature: supportsTemperature(finalModel),
     languageMode: languageMode,
-    targetLanguage: standardLanguage, 
+    targetLanguage: standardLanguageText,
     customLanguage: customLangText,  
     settings: { 
       provider: provider, 
       model: finalModel, 
       apiKey: provider === 'openai' ? openaiApiKey : (provider === 'anthropic' ? anthropicApiKey : geminiApiKey),
       promptTemplate: resolvedPromptForBackground, // Store the RESOLVED prompt for the background script
-      targetLang: languageMode === 'custom' ? customLangText : standardLanguage, 
+      targetLang: languageMode === 'custom' ? customLangText : (standardLanguageText || 'English'),
       streaming: true 
     }
   };
