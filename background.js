@@ -85,9 +85,30 @@ function supportsTemperature(model) {
 }
 
 function buildTranslateTitle(settings) {
-  const lang = settings?.targetLang || "English";
-  const providerName = (settings?.provider || "openai").replace(/^./, (c) => c.toUpperCase());
-  return `Translate to ${lang} with ${providerName} (UGTBrowser)`;
+  let langName = "English"; // Fallback default
+  let providerName = "OpenAI"; // Fallback default
+
+  if (settings) {
+    providerName = (settings.provider || "openai").replace(/^./, (c) => c.toUpperCase());
+
+    if (settings.languageMode === 'custom') {
+      if (settings.customLanguage && settings.customLanguage.trim() !== "") {
+        langName = settings.customLanguage.trim();
+      } else {
+        langName = "Custom"; // Placeholder if custom mode is selected but no text is entered
+      }
+    } else if (settings.targetLanguage) { // Standard mode
+      langName = settings.targetLanguage;
+    }
+    // If settings exist but don't specify languageMode or targetLanguage appropriately, langName remains "English".
+  }
+
+  // Truncate langName if it's too long for the context menu
+  if (langName.length > 16) {
+    langName = langName.substring(0, 16) + "...";
+  }
+
+  return `Translate to ${langName} with ${providerName} (UGTBrowser)`;
 }
 
 function createContextMenus(settings = {}) {
@@ -103,15 +124,49 @@ function createContextMenus(settings = {}) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.get(["settings"], ({ settings }) => {
-    createContextMenus(settings || {});
+  // Fetch all relevant settings to build the initial context menu title correctly
+  chrome.storage.sync.get([
+    'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
+  ], (fullSettings) => {
+    const effectiveSettings = {
+      provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
+      languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
+      targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
+      customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || ''
+    };
+    createContextMenus(effectiveSettings);
   });
 });
 
 // Update menu title when settings change
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync" && changes.settings) {
-    createContextMenus(changes.settings.newValue || {});
+  if (area === "sync") {
+    // Check if any of the relevant settings changed
+    const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'];
+    let needsUpdate = false;
+    for (const key of relevantChanges) {
+      if (changes[key]) {
+        needsUpdate = true;
+        break;
+      }
+    }
+
+    if (needsUpdate) {
+      // Fetch all current settings to rebuild the title correctly
+      chrome.storage.sync.get([
+        'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
+      ], (fullSettings) => {
+        // The `settings` object from storage might be nested or flat depending on how it was saved.
+        // We need to construct a comprehensive object for buildTranslateTitle.
+        const effectiveSettings = {
+          provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
+          languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
+          targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
+          customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || ''
+        };
+        createContextMenus(effectiveSettings);
+      });
+    }
   }
 });
 
@@ -148,6 +203,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (settings.streaming) {
       let port = chrome.tabs.connect(sender.tab.id, {name: "translation_stream"});
+      if (chrome.runtime.lastError) {
+        console.error("Failed to connect to tab:", chrome.runtime.lastError.message);
+        // Potentially send an error response back to the original message sender
+        // if the port couldn't be established, as streaming won't work.
+        sendResponse({ success: false, error: "Failed to establish streaming connection: " + chrome.runtime.lastError.message });
+        return true; // Important: still return true because sendResponse was called.
+      }
+      
       const portId = Date.now().toString();
       activeStreamingPorts.set(portId, { port: port, tabId: sender.tab.id, lastActivity: Date.now() });
       
@@ -218,44 +281,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Helper function to check if content script is loaded
 async function checkIfContentScriptLoaded(tabId) {
-  try {
-    return await new Promise((resolve) => {
-      chrome.tabs.sendMessage(
-        tabId, 
-        { type: "PING" }, 
-        response => {
-          resolve(!!response);
+  // console.log(`Pinging content script in tab ${tabId}`);
+  return new Promise((resolve) => { // No reject needed, always resolve true/false
+    chrome.tabs.sendMessage(
+      tabId, 
+      { type: "PING" }, 
+      (response) => { // Callback for the PING message
+        if (chrome.runtime.lastError) {
+          // This means sendMessage itself failed (e.g., no context to receive in the tab, or tab closed)
+          // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId} failed. Error: ${chrome.runtime.lastError.message}`);
+          resolve(false); // Content script is not responsive or doesn't exist
+        } else {
+          // Message was sent and content script responded (or didn't, but no sendMessage error)
+          if (response && response.status === "ok") {
+            // console.log(`checkIfContentScriptLoaded: PING successful for tab ${tabId}`);
+            resolve(true);
+          } else {
+            // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId} received no/invalid response. Response:`, response);
+            resolve(false); // Content script exists but didn't respond as expected
+          }
         }
-      );
-    });
-  } catch (e) {
-    return false;
-  }
+      }
+    );
+  });
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_ID && info.selectionText) {
-    chrome.storage.sync.get(null, async (data) => {
+    chrome.storage.sync.get(null, async (data) => { // storage.sync.get callback is already async
       const settings = data.settings || {};
-      const message = {
+      const messagePayload = { // Renamed to avoid confusion
         type: "TRANSLATE_SELECTION",
         text: info.selectionText,
         settings
       };
       
-      // Check if content script is already loaded
       try {
-        const isLoaded = await checkIfContentScriptLoaded(tab.id);
+        let isLoaded = await checkIfContentScriptLoaded(tab.id);
+        
         if (!isLoaded) {
-          // Only inject if not already loaded
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["contentScript.js"]
-          });
+          console.log(`Content script not loaded for tab ${tab.id}, attempting to inject.`);
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              files: ["contentScript.js"]
+            });
+            console.log(`Content script injected for tab ${tab.id}.`);
+            // Assuming injection makes it ready, or sendMessage will report error if not.
+          } catch (injectionError) {
+            console.error(`Failed to inject content script into tab ${tab.id}:`, injectionError, chrome.runtime.lastError?.message);
+            return; // Do not proceed if injection failed.
+          }
         }
-        chrome.tabs.sendMessage(tab.id, message);
-      } catch (error) {
-        console.error("Error injecting or messaging content script:", error);
+        
+        // Now send the message WITHOUT a callback, as contentScript doesn't send a direct reply
+        chrome.tabs.sendMessage(tab.id, messagePayload);
+        // No callback here, so no "message port closed" error if content script doesn't call sendResponse.
+
+      } catch (error) { // Catches errors from awaiting checkIfContentScriptLoaded or other unexpected issues
+        console.error("Error in context menu click handler (outer try-catch):", error);
       }
     });
   } 

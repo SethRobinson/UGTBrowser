@@ -289,4 +289,26 @@ ol {
 .disabled-section {
   opacity: 0.5;
   pointer-events: none;
+}
+
+#customLanguageSection {
+  display: flex;
+  align-items: center;
+}
+
+#customLanguageSection input[type="text"] {
+  width: 100%; /* Make it take full width of its container */
+  min-width: 300px; /* Or a specific larger min-width if preferred */
+  margin-right: 5px; /* Add some space between input and help icon */
+}
+
+.custom-language-option-group {
+  margin-top: 20px; /* Add space above the custom language radio group */
+}
+
+.help-icon {
+  cursor: help;
+  margin-left: 5px;
+  font-weight: bold;
+  color: #007bff;
 } 
