@@ -20,6 +20,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let lastProcessTime = 0;
   let initialInsertionHasOccurred = false; // Flag for initial DOM insertion
   let errorModalDiv = null; // For the custom error modal
+  let lastTranslatedElement = null; // To track the last element where translation was inserted
 
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
@@ -83,6 +84,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               targetSpan.innerHTML = translatedContent; // Use innerHTML to render potential HTML tags in translation
+              lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`No placeholder span found for ugt_id: ${ugtId}`);
             }
@@ -123,6 +125,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               targetSpan.innerHTML = translatedContent;
+              lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`(Complete) No placeholder span for ugt_id: ${ugtId}`);
             }
@@ -130,10 +133,33 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           }
           streamBuffer = streamBuffer.substring(lastIndex); // Remove processed parts
           
-          if (streamBuffer.length > 0) {
-             console.warn("Stream complete, but buffer has remaining unparsed content:", streamBuffer);
+          if (streamBuffer.length > 0 && lastTranslatedElement) {
+            const extraText = streamBuffer.trim();
+            if (extraText) {
+              console.log("Appending extra text after last translation:", extraText);
+              const extraTextContainer = document.createElement('div');
+              extraTextContainer.textContent = extraText; 
+              // Basic styling for the appended text container
+              extraTextContainer.style.marginLeft = '8px'; 
+              extraTextContainer.style.padding = '5px';
+              extraTextContainer.style.border = '1px dashed #ccc';
+              extraTextContainer.style.marginTop = '5px';
+              extraTextContainer.style.backgroundColor = '#f9f9f9';
+              
+              if (lastTranslatedElement.parentNode) {
+                lastTranslatedElement.parentNode.insertBefore(extraTextContainer, lastTranslatedElement.nextSibling);
+              } else {
+                // Fallback: append to body if lastTranslatedElement somehow lost its parent
+                document.body.appendChild(extraTextContainer);
+                console.warn("Last translated element had no parent, appended extra text to body.");
+              }
+            }
+          } else if (streamBuffer.length > 0) {
+            // This case means there's extra text, but no translation happened (lastTranslatedElement is null)
+            // or the logic for setting lastTranslatedElement failed.
+            console.warn("Stream complete, buffer has remaining unparsed content, but no last translated element to append to:", streamBuffer);
           }
-          streamBuffer = ""; // Clear buffer as its content is now in fullyAssembledTranslation or processed
+          streamBuffer = ""; // Clear buffer
           
           currentStreamingText = fullyAssembledTranslation.trim(); // Update with the final text for preview
           

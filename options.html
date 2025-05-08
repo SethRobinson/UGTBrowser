@@ -93,9 +93,19 @@
             </label>
             <div id="customLanguageSection">
               <input type="text" id="customLanguage" placeholder="e.g., English, but like a pirate">
-              <span id="customHelp" class="help-icon" title="Enter any custom language prompt. For example: 'English, but everyone is talking like a pirate', 'Piglatin', or 'Japanese, but with furigana on all the kanji'. Be creative!">?</span>
+              <span id="customHelp" class="help-icon">?</span>
             </div>
           </div>
+        </div>
+
+        <div class="form-section" id="creativeTaskSection">
+          <fieldset>
+            <legend>Creative Task</legend>
+            <div class="form-group">
+              <label for="creativeTaskTextarea">Optional Creative Task: <span class="help-icon" id="creativeTaskHelpBtn">?</span></label>
+              <textarea id="creativeTaskTextarea" class="form-control" rows="3" placeholder="e.g., Make the translation sound like a pirate."></textarea>
+            </div>
+          </fieldset>
         </div>
 
         <div class="settings-section">
@@ -141,7 +151,7 @@
 
           <div class="form-group" id="promptSection">
             <div class="prompt-header">
-              <label for="promptTemplate">Prompt Template:</label>
+              <label for="promptTemplate">Prompt Template: <span class="help-icon" id="mainPromptHelpBtn">?</span></label>
               <button id="resetPromptBtn" class="small-button">Reset to Default</button>
             </div>
             <p class="help-text">Use {{text}} for the text to translate (content script will format this as ID: Text lines) and {{target}} for the target language. Ensure your prompt asks the LLM to output translations wrapped in &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt; tags for each segment.</p>
@@ -185,6 +195,17 @@
           <button id="saveBtn" class="primary-button">Save Settings</button>
         </div>
         <p id="status" class="status-message"></p>
+      </div>
+    </div>
+
+    <!-- General Help Modal Structure -->
+    <div id="helpModal" class="modal">
+      <div class="modal-content">
+        <span class="modal-close-btn">&times;</span>
+        <h2 id="helpModalTitle" class="modal-title">Help</h2>
+        <div id="helpModalBody" class="modal-body">
+          <p>Help text will appear here.</p>
+        </div>
       </div>
     </div>
 

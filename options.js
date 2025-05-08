@@ -20,6 +20,9 @@ const anthropicApiKeyHelp = document.getElementById('anthropicApiKeyHelp');
 const geminiApiKeyHelp = document.getElementById('geminiApiKeyHelp');
 
 const promptTemplateTextarea = document.getElementById('promptTemplate');
+const creativeTaskTextarea = document.getElementById('creativeTaskTextarea');
+const mainPromptHelpBtn = document.getElementById('mainPromptHelpBtn');
+const creativeTaskHelpBtn = document.getElementById('creativeTaskHelpBtn');
 const statusDiv = document.getElementById('status');
 
 // Language mode elements
@@ -28,12 +31,19 @@ const standardLanguageSection = document.getElementById('standardLanguageSection
 const customLanguageSection = document.getElementById('customLanguageSection');
 const languageSelect = document.getElementById('language'); // Used for standard language
 const customLanguageInput = document.getElementById('customLanguage');
+const customHelpSpan = document.getElementById('customHelp'); // Added for modal
 
 const toggleDebugBtn = document.getElementById('toggleDebugBtn');
 const llmDebugContent = document.getElementById('llmDebugContent');
 const refreshLLMDataBtn = document.getElementById('refreshLLMDataBtn');
 const saveBtn = document.getElementById('saveBtn');
 const resetPromptBtn = document.getElementById('resetPromptBtn');
+
+// --- Modal Elements ---
+const helpModal = document.getElementById('helpModal');
+const helpModalTitle = document.getElementById('helpModalTitle');
+const helpModalBody = document.getElementById('helpModalBody');
+const modalCloseBtn = document.querySelector('.modal-close-btn');
 
 // --- Configuration Data ---
 const noTemperatureModels = [
@@ -50,33 +60,45 @@ const providerModels = {
 
 const defaultPrompts = {
   openai: (
-    'Translate each of the following text segments to {{target}}.\\n' +
-    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\\n' +
-    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\\n' +
-    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\\n' +
-    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\\n' +
-    'Output ONLY the tagged translations. No extra explanations, comments, or unrelated text.\\n\\n' +
-    'Segments to translate:\\n' +
+    'You have two main tasks for the text segments that follow:\n\n' +
+    '1.  **Primary Translation Task:** Translate each segment to {{target}}.\n' +
+    '{{creative_task_placeholder}}' +
+    '\n**General Instructions for Processing All Segments:**\n' +
+    'The following text segments are part of a single document, presented in order. Use the context of preceding segments to inform the translation of subsequent ones.\n' +
+    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\n' +
+    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\n' +
+    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\n' +
+    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\n' +
+    'For the translation of individual segments, output ONLY the tagged translations. After all segments are translated and their tagged translations are outputted, then proceed to output the result of the "Creative Addition Task" if one is specified in the initial tasks. Ensure no other extraneous text, preambles, or comments are included in the entire response beyond these two parts (tagged translations and the creative task result).\n\n' +
+    'Segments to translate:\n' +
     '{{text}}'
   ),
-  anthropic: ( // Assuming same default prompt structure for Anthropic
-    'Translate each of the following text segments to {{target}}.\\n' +
-    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\\n' +
-    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\\n' +
-    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\\n' +
-    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\\n' +
-    'Output ONLY the tagged translations. No extra explanations, comments, or unrelated text.\\n\\n' +
-    'Segments to translate:\\n' +
+  anthropic: ( 
+    'You have two main tasks for the text segments that follow:\n\n' +
+    '1.  **Primary Translation Task:** Translate each segment to {{target}}.\n' +
+    '{{creative_task_placeholder}}' +
+    '\n**General Instructions for Processing All Segments:**\n' +
+    'The following text segments are part of a single document, presented in order. Use the context of preceding segments to inform the translation of subsequent ones.\n' +
+    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\n' +
+    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\n' +
+    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\n' +
+    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\n' +
+    'For the translation of individual segments, output ONLY the tagged translations. After all segments are translated and their tagged translations are outputted, then proceed to output the result of the "Creative Addition Task" if one is specified in the initial tasks. Ensure no other extraneous text, preambles, or comments are included in the entire response beyond these two parts (tagged translations and the creative task result).\n\n' +
+    'Segments to translate:\n' +
     '{{text}}'
   ),
-  gemini: ( // Assuming same default prompt structure for Gemini
-    'Translate each of the following text segments to {{target}}.\\n' +
-    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\\n' +
-    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\\n' +
-    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\\n' +
-    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\\n' +
-    'Output ONLY the tagged translations. No extra explanations, comments, or unrelated text.\\n\\n' +
-    'Segments to translate:\\n' +
+  gemini: ( 
+    'You have two main tasks for the text segments that follow:\n\n' +
+    '1.  **Primary Translation Task:** Translate each segment to {{target}}.\n' +
+    '{{creative_task_placeholder}}' +
+    '\n**General Instructions for Processing All Segments:**\n' +
+    'The following text segments are part of a single document, presented in order. Use the context of preceding segments to inform the translation of subsequent ones.\n' +
+    'For each segment, use the provided ID and wrap your translation in tags like <ugt_ID>translation</ugt_ID>.\n' +
+    'Stream the response, ensuring each tagged segment is complete or progressively built within its tags.\n' +
+    'For example, if the input is "<ugt_abc123>Original Text Segment</ugt_abc123>", you should output: "<ugt_abc123>Translated Text Segment</ugt_abc123>"\n' +
+    'Preserve all HTML tags, URLs, and code snippets within the translation if they appear in the original segment.\n' +
+    'For the translation of individual segments, output ONLY the tagged translations. After all segments are translated and their tagged translations are outputted, then proceed to output the result of the "Creative Addition Task" if one is specified in the initial tasks. Ensure no other extraneous text, preambles, or comments are included in the entire response beyond these two parts (tagged translations and the creative task result).\n\n' +
+    'Segments to translate:\n' +
     '{{text}}'
   )
 };
@@ -86,7 +108,7 @@ function initializeOptionsPage() {
   // Setup event listeners
   providerSelect.addEventListener('change', () => {
     updateProviderFields();
-    updateModelOptions(); // Also update models when provider changes
+    updateModelOptions();
   });
   modelSelect.addEventListener('change', updateCustomModelVisibility);
   saveBtn.addEventListener('click', saveOptions);
@@ -109,55 +131,136 @@ function initializeOptionsPage() {
     radio.addEventListener('change', updateLanguageSectionState);
   });
 
-  restoreOptions(); // Load saved settings
+  // --- Help Modal Logic ---
+  const helpContentMap = {
+    customHelp: {
+      title: "Custom Language Prompt",
+      body: "<p>Enter any custom language prompt for the translation target. This allows for creative and flexible translation requests.</p>" +
+            "<p><strong>Examples:</strong></p>" +
+            "<ul>" +
+            "<li>'English, but everyone is talking like a pirate'</li>" +
+            "<li>'Piglatin'</li>" +
+            "<li>'Japanese, but with furigana on all the kanji'</li>" +
+            "<li>'Translate to Spanish, and make it rhyme if possible.'</li>" +
+            "</ul>" +
+            "<p>Be creative! The LLM will do its best to follow your custom instructions for the target language.</p>"
+    },
+    creativeTaskHelpBtn: {
+      title: "Optional Creative Task",
+      body: "<p>Define an optional creative task for the LLM to perform <em>in addition</em> to the primary translation. This task will be incorporated into the main prompt sent to the LLM.</p>" +
+            "<p><strong>Examples:</strong></p>" +
+            "<ul>" +
+            "<li>'Make the translation sound like a pirate.'</li>" +
+            "<li>'Summarize the text in one sentence after translating.'</li>" +
+            "<li>'Translate to English and also explain any cultural nuances found in the original text.'</li>" +
+            "<li>'After translating, list any proper nouns found in the text.'</li>" +
+            "</ul>" +
+            "<p>If left blank, no additional creative task will be included.</p>"
+    },
+    mainPromptHelpBtn: {
+      title: "Prompt Template Guide",
+      body: "<p>The prompt template defines how UGTBrowser instructs the LLM to perform translations. Advanced users can customize this.</p>" +
+            "<p><strong>Key Placeholders:</strong></p>" +
+            "<ul>" +
+            "<li><code>{{text}}</code>: This is where the actual text segments selected for translation will be inserted. The content script typically formats this as multiple lines, each with a unique ID (e.g., <code>&lt;ugt_abc123&gt;Original text line 1&lt;/ugt_abc123&gt;</code>, <code>&lt;ugt_def456&gt;Original text line 2&lt;/ugt_def456&gt;</code>).</li>" +
+            "<li><code>{{target}}</code>: This placeholder will be replaced with the target language you've selected (e.g., 'Spanish', 'Japanese', or your custom language prompt).</li>" +
+            "<li><code>{{creative_task_placeholder}}</code>: If you've defined an 'Optional Creative Task', it will be formatted and inserted here. If no creative task is set, this placeholder will be replaced with an empty string.</li>" +
+            "</ul>" +
+            "<p><strong>Crucial Output Format:</strong></p>" +
+            "<p>Ensure your prompt clearly instructs the LLM to wrap <strong>each</strong> translated segment in <code>&lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;</code> tags, where 'ID' matches the ID of the corresponding input segment. This is essential for the extension to correctly process and display the translations.</p>" +
+            "<p><strong>Example Instruction for LLM:</strong></p>" +
+            "<p>'For each segment, use the provided ID and wrap your translation in tags like &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;. For example, if the input is \"&lt;ugt_abc123&gt;Original Text Segment&lt;/ugt_abc123&gt;\", you should output: \"&lt;ugt_abc123&gt;Translated Text Segment&lt;/ugt_abc123&gt;\".'</p>" +
+            "<p>You can also add instructions regarding tone, style, or specific formatting requirements. The default prompts provide good examples of how to structure these instructions.</p>"
+    }
+  };
+
+  function openHelpModal(contentKey) {
+    const content = helpContentMap[contentKey];
+    if (content && helpModal && helpModalTitle && helpModalBody) {
+      helpModalTitle.textContent = content.title;
+      helpModalBody.innerHTML = content.body; // Use innerHTML as content includes HTML tags
+      helpModal.style.display = 'block';
+    }
+  }
+
+  function closeHelpModal() {
+    if (helpModal) {
+      helpModal.style.display = 'none';
+    }
+  }
+
+  if (customHelpSpan) {
+    customHelpSpan.addEventListener('click', () => openHelpModal('customHelp'));
+  }
+  if (mainPromptHelpBtn) {
+    mainPromptHelpBtn.addEventListener('click', () => openHelpModal('mainPromptHelpBtn'));
+  }
+  if (creativeTaskHelpBtn) {
+    creativeTaskHelpBtn.addEventListener('click', () => openHelpModal('creativeTaskHelpBtn'));
+  }
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener('click', closeHelpModal);
+  }
+
+  // Close modal if user clicks outside of the modal content
+  window.addEventListener('click', (event) => {
+    if (event.target === helpModal) {
+      closeHelpModal();
+    }
+  });
+  // --- End Help Modal Logic ---
+
+  restoreOptions();
 }
 
 // --- Core Functions ---
 function restoreOptions() {
-  chrome.storage.sync.get(
-    { // Defaults
-      selectedProvider: 'openai',
-      openaiApiKey: '',
-      anthropicApiKey: '',
-      geminiApiKey: '',
-      model: '', 
-      customModel: '',
-      // Provider-specific prompts will be handled by checking for `${provider}Prompt`
-      languageMode: 'standard',
-      targetLanguage: 'en', // This refers to the standard language dropdown value
-      customLanguage: '',
-      // LLM Debug defaults (though these are usually just read)
-      lastRequestInfo: null,
-      lastRequestPrompt: null,
-      lastResponseInfo: null,
-      lastResponseContent: null
-    },
-    (items) => {
-      providerSelect.value = items.selectedProvider || 'openai';
-      
-      openAIApiKeyInput.value = items.openaiApiKey || '';
-      anthropicApiKeyInput.value = items.anthropicApiKey || '';
-      geminiApiKeyInput.value = items.geminiApiKey || '';
-      
-      customModelInput.value = items.customModel || '';
+  // Define all keys we might retrieve, including provider-specific prompt templates
+  const keysToGet = {
+    selectedProvider: 'openai',
+    openaiApiKey: '',
+    anthropicApiKey: '',
+    geminiApiKey: '',
+    model: '',
+    customModel: '',
+    languageMode: 'standard',
+    targetLanguage: 'en',
+    customLanguage: '',
+    globalCreativeTask: '', 
+    lastRequestInfo: null,
+    lastRequestPrompt: null,
+    lastResponseInfo: null,
+    lastResponseContent: null
+  };
 
-      // Restore language mode and values
-      const currentLanguageMode = items.languageMode || 'standard';
-      document.querySelector(`input[name="languageMode"][value="${currentLanguageMode}"]`).checked = true;
-      languageSelect.value = items.targetLanguage || 'en'; // For standard mode
-      customLanguageInput.value = items.customLanguage || ''; // For custom mode
-      
-      updateProviderFields(); // Updates API key visibility, model dropdowns
-      updateModelOptions(items.model || providerModels[items.selectedProvider]?.[0], items.customModel); // Sets selected model
-      updateLanguageSectionState(); // Sets initial state of language sections (enabled/disabled)
+  // Add provider prompt template keys to keysToGet
+  Object.keys(providerModels).forEach(provider => {
+    keysToGet[`${provider}Prompt`] = defaultPrompts[provider]; // Default to default if not found
+  });
 
-      // Load prompt for the current provider
-      const promptKey = `${items.selectedProvider}Prompt`;
-      promptTemplateTextarea.value = items[promptKey] || defaultPrompts[items.selectedProvider];
-      
-      fetchLastLLMData(); // Load last LLM debug data
-    }
-  );
+  chrome.storage.sync.get(keysToGet, (items) => {
+    providerSelect.value = items.selectedProvider;
+    openAIApiKeyInput.value = items.openaiApiKey;
+    anthropicApiKeyInput.value = items.anthropicApiKey;
+    geminiApiKeyInput.value = items.geminiApiKey;
+    customModelInput.value = items.customModel;
+    creativeTaskTextarea.value = items.globalCreativeTask;
+
+    const currentLanguageMode = items.languageMode;
+    document.querySelector(`input[name="languageMode"][value="${currentLanguageMode}"]`).checked = true;
+    languageSelect.value = items.targetLanguage;
+    customLanguageInput.value = items.customLanguage;
+    
+    updateProviderFields(); // Updates API key visibility, model dropdowns, and loads the provider's prompt template
+    updateModelOptions(items.model || providerModels[items.selectedProvider]?.[0], items.customModel);
+    updateLanguageSectionState();
+    
+    // Load the specific prompt template for the restored provider
+    // updateProviderFields will handle loading the correct prompt template into promptTemplateTextarea
+    // based on items.selectedProvider and its stored `${items.selectedProvider}Prompt`
+
+    fetchLastLLMData();
+  });
 }
 
 function saveOptions() {
@@ -166,7 +269,7 @@ function saveOptions() {
   const customModelValue = customModelInput.value.trim();
   
   let finalModel = selectedModelValue;
-  if (customModelValue && (selectedModelValue === '' || providerModels[provider].length === 0 || !providerModels[provider].includes(selectedModelValue))) {
+  if (customModelValue && (selectedModelValue === '' || !providerModels[provider] || providerModels[provider].length === 0 || !providerModels[provider].includes(selectedModelValue))) {
     finalModel = customModelValue;
   }
   
@@ -174,7 +277,17 @@ function saveOptions() {
   const anthropicApiKey = anthropicApiKeyInput.value.trim();
   const geminiApiKey = geminiApiKeyInput.value.trim();
   
-  const currentPromptTemplate = promptTemplateTextarea.value;
+  const promptTemplateFromUI = promptTemplateTextarea.value; 
+  const creativeTaskText = creativeTaskTextarea.value.trim();
+  
+  let resolvedPromptForBackground = promptTemplateFromUI;
+  if (creativeTaskText) {
+    const formattedCreativeTask = '2.  **Creative Addition Task:** ' + creativeTaskText + '\n';
+    resolvedPromptForBackground = promptTemplateFromUI.replace('{{creative_task_placeholder}}', formattedCreativeTask);
+  } else {
+    resolvedPromptForBackground = promptTemplateFromUI.replace('{{creative_task_placeholder}}', '');
+  }
+  
   const languageMode = document.querySelector('input[name="languageMode"]:checked').value;
   const standardLanguage = languageSelect.value;
   const customLangText = customLanguageInput.value.trim();
@@ -182,30 +295,29 @@ function saveOptions() {
   const settingsToSave = {
     selectedProvider: provider,
     model: finalModel,
-    customModel: customModelValue, // Always save what's in custom input for reference
+    customModel: customModelValue, 
     openaiApiKey: openaiApiKey,
     anthropicApiKey: anthropicApiKey,
     geminiApiKey: geminiApiKey,
-    [`${provider}Prompt`]: currentPromptTemplate, // Provider-specific prompt
+    [`${provider}Prompt`]: promptTemplateFromUI, // Store the UNRESOLVED template for this provider
+    globalCreativeTask: creativeTaskText, 
     supportsTemperature: supportsTemperature(finalModel),
     languageMode: languageMode,
-    targetLanguage: standardLanguage, // Save standard language selection
-    customLanguage: customLangText,  // Save custom language text
-    // Old generic settings for potential backward compatibility or direct use by background script
-    // These might be redundant if background script is updated to use new specific fields
+    targetLanguage: standardLanguage, 
+    customLanguage: customLangText,  
     settings: { 
       provider: provider, 
       model: finalModel, 
       apiKey: provider === 'openai' ? openaiApiKey : (provider === 'anthropic' ? anthropicApiKey : geminiApiKey),
-      promptTemplate: currentPromptTemplate, // Generic prompt for background
-      targetLang: languageMode === 'custom' ? customLangText : standardLanguage, // Effective target language
+      promptTemplate: resolvedPromptForBackground, // Store the RESOLVED prompt for the background script
+      targetLang: languageMode === 'custom' ? customLangText : standardLanguage, 
       streaming: true 
     }
   };
   
   chrome.storage.sync.set(settingsToSave, () => {
     statusDiv.textContent = 'Settings saved.';
-    statusDiv.style.color = 'green'; // Or use a class for styling
+    statusDiv.style.color = 'green'; 
     statusDiv.classList.add('visible');
     setTimeout(() => {
       statusDiv.textContent = '';
@@ -218,11 +330,9 @@ function saveOptions() {
 function updateProviderFields() {
   const provider = providerSelect.value;
 
-  // Hide all API key sections and help texts first
   [openaiKeyWrapper, anthropicKeyWrapper, geminiKeyWrapper].forEach(w => w.style.display = 'none');
   [openaiApiKeyHelp, anthropicApiKeyHelp, geminiApiKeyHelp].forEach(h => h.style.display = 'none');
 
-  // Show relevant API key section and help text
   if (provider === 'openai') {
     openaiKeyWrapper.style.display = 'block';
     if (openaiApiKeyHelp) openaiApiKeyHelp.style.display = 'block';
@@ -234,9 +344,10 @@ function updateProviderFields() {
     if (geminiApiKeyHelp) geminiApiKeyHelp.style.display = 'block';
   }
   
-  // Load the prompt template for this provider if not already set by restoreOptions
-  chrome.storage.sync.get([`${provider}Prompt`], (data) => {
-    promptTemplateTextarea.value = data[`${provider}Prompt`] || defaultPrompts[provider];
+  // Load the UNRESOLVED prompt template for this provider into the textarea
+  const providerPromptKey = `${provider}Prompt`;
+  chrome.storage.sync.get([providerPromptKey], (items) => {
+    promptTemplateTextarea.value = items[providerPromptKey] || defaultPrompts[provider];
   });
 }
 
