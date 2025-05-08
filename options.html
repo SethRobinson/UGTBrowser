@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>UGTBrowser Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header style="display: flex; align-items: center; margin-bottom: 20px;">
+        <img src="icon.png" alt="UGTBrowser Logo" style="height: 48px; width: 48px; margin-right: 15px;">
+        <h1>UGTBrowser Settings</h1>
+      </header>
+      <div id="aboutSection" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
+        <h2 style="margin-top: 0; margin-bottom: 10px;">About UGTBrowser</h2>
+        <p style="margin-bottom: 5px;">
+          UGTBrowser is an extension for inline AI translation, created by Seth A. Robinson.
+        </p>
+        <p style="margin-top: 5px;">
+          Connect with Seth:
+          <a href="https://www.rtsoft.com/" target="_blank" title="RTsoft Homepage">Homepage</a> |
+          <a href="https://twitter.com/rtsoft" target="_blank" title="RTsoft on Twitter">Twitter</a> |
+          <a href="https://bsky.app/profile/rtsoft.com" target="_blank" title="RTsoft on Bluesky">Bluesky</a>
+        </p>
+      </div>
+      <div id="usageInstructions" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
+        <h2 style="margin-top: 0; margin-bottom: 10px;">How to Translate</h2>
+        <p style="margin-bottom: 5px;">
+          To translate text on any webpage:
+          <ol>
+            <li>Highlight the text you want to translate.</li>
+            <li>Right-click on the highlighted text.</li>
+            <li>Select the Translate to (language) with (provider) (UGTBrowser) option from the context menu.</li>
+            <p>Note: This option only shows up if you right-click highlighted text!</p>
+          </ol>
+        </p>
+      </div>
+
+      <div id="githubSection" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
+        <h2 style="margin-top: 0; margin-bottom: 10px;">Comments or problems? Check out the <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" title="UGTBrowser on GitHub">UGTBrowser github</a>.</h2>
+      </div>
+
+      <div class="settings-panel">
+        <div class="settings-section">
+          <h2>Translation Settings</h2>
+          <div class="form-group" id="langWrapper">
+            <label for="targetLang">Target Language:</label>
+            <select id="targetLang" class="form-control">
+              <option value="English">English</option>
+              <option value="Spanish">Spanish</option>
+              <option value="French">French</option>
+              <option value="German">German</option>
+              <option value="Japanese">Japanese</option>
+              <option value="Chinese">Chinese (Simplified)</option>
+              <option value="ChineseTraditional">Chinese (Traditional)</option>
+              <option value="Korean">Korean</option>
+              <option value="Russian">Russian</option>
+              <option value="Arabic">Arabic</option>
+              <option value="Hindi">Hindi</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="Italian">Italian</option>
+              <option value="Dutch">Dutch</option>
+              <option value="Swedish">Swedish</option>
+              <option value="Norwegian">Norwegian</option>
+              <option value="Danish">Danish</option>
+              <option value="Finnish">Finnish</option>
+              <option value="Polish">Polish</option>
+              <option value="Turkish">Turkish</option>
+              <option value="Hebrew">Hebrew</option>
+              <option value="Thai">Thai</option>
+              <option value="Vietnamese">Vietnamese</option>
+              <option value="Indonesian">Indonesian</option>
+              <option value="Malay">Malay</option>
+              <option value="Greek">Greek</option>
+              <option value="Czech">Czech</option>
+              <option value="Hungarian">Hungarian</option>
+              <option value="Romanian">Romanian</option>
+              <option value="Ukrainian">Ukrainian</option>
+              <option value="Slovak">Slovak</option>
+              <option value="Croatian">Croatian</option>
+              <option value="Catalan">Catalan</option>
+              <option value="Basque">Basque</option>
+              <option value="Afrikaans">Afrikaans</option>
+              <option value="Swahili">Swahili</option>
+              <option value="Esperanto">Esperanto</option>
+              <option value="Latin">Latin</option>
+              <option value="Welsh">Welsh</option>
+              <option value="Irish">Irish</option>
+              <option value="Scottish Gaelic">Scottish Gaelic</option>
+              <option value="Icelandic">Icelandic</option>
+              <option value="Maltese">Maltese</option>
+              <option value="Estonian">Estonian</option>
+              <option value="Latvian">Latvian</option>
+              <option value="Lithuanian">Lithuanian</option>
+              <option value="Slovenian">Slovenian</option>
+              <option value="Albanian">Albanian</option>
+              <option value="Macedonian">Macedonian</option>
+              <option value="Serbian">Serbian</option>
+              <option value="Bulgarian">Bulgarian</option>
+              <option value="Bengali">Bengali</option>
+              <option value="Gujarati">Gujarati</option>
+              <option value="Kannada">Kannada</option>
+              <option value="Malayalam">Malayalam</option>
+              <option value="Marathi">Marathi</option>
+              <option value="Nepali">Nepali</option>
+              <option value="Oriya">Oriya</option>
+              <option value="Punjabi">Punjabi</option>
+              <option value="Sindhi">Sindhi</option>
+              <option value="Tamil">Tamil</option>
+              <option value="Telugu">Telugu</option>
+              <option value="Urdu">Urdu</option>
+              <option value="Persian">Persian (Farsi)</option>
+              <option value="Pashto">Pashto</option>
+              <option value="Kurdish">Kurdish</option>
+              <option value="Tagalog">Tagalog (Filipino)</option>
+              <option value="Javanese">Javanese</option>
+              <option value="Sundanese">Sundanese</option>
+              <option value="Uzbek">Uzbek</option>
+              <option value="Kazakh">Kazakh</option>
+              <option value="Azerbaijani">Azerbaijani</option>
+              <option value="Armenian">Armenian</option>
+              <option value="Georgian">Georgian</option>
+              <option value="Amharic">Amharic</option>
+              <option value="Somali">Somali</option>
+              <option value="Yoruba">Yoruba</option>
+              <option value="Igbo">Igbo</option>
+              <option value="Hausa">Hausa</option>
+              <option value="Zulu">Zulu</option>
+              <option value="Xhosa">Xhosa</option>
+              <option value="Sesotho">Sesotho</option>
+              <option value="Setswana">Setswana</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h2>LLM Provider</h2>
+          <div class="form-group">
+            <label for="providerSelect">Provider:</label>
+            <select id="providerSelect" class="form-control">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic Claude</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="modelWrapper">
+            <label for="modelSelect">Model:</label>
+            <select id="modelSelect" class="form-control"></select>
+            <input type="text" id="customModel" class="form-control" placeholder="Or enter custom model name (optional)" />
+          </div>
+          
+          <div class="form-group" id="openaiKeyWrapper">
+            <label for="openaiApiKey">OpenAI API Key:</label>
+            <input type="password" id="openaiApiKey" class="form-control" placeholder="Enter OpenAI API key" />
+            <div class="api-key-help" id="openaiApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
+              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
+            </div>
+          </div>
+          
+          <div class="form-group" id="anthropicKeyWrapper">
+            <label for="anthropicApiKey">Anthropic API Key:</label>
+            <input type="password" id="anthropicApiKey" class="form-control" placeholder="Enter Anthropic API key" />
+            <div class="api-key-help" id="anthropicApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
+              Obtain your Anthropic API key from the <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a> (Account Settings).
+            </div>
+          </div>
+          
+          <div class="form-group" id="geminiKeyWrapper">
+            <label for="geminiApiKey">Google Gemini API Key:</label>
+            <input type="password" id="geminiApiKey" class="form-control" placeholder="Enter Google Gemini API key" />
+            <div class="api-key-help" id="geminiApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
+              Generate your Google Gemini API key via <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+            </div>
+          </div>
+
+          <div class="form-group" id="promptSection">
+            <div class="prompt-header">
+              <label for="promptTemplate">Prompt Template:</label>
+              <button id="resetPromptBtn" class="small-button">Reset to Default</button>
+            </div>
+            <p class="help-text">Use {{text}} for the text to translate (content script will format this as ID: Text lines) and {{target}} for the target language. Ensure your prompt asks the LLM to output translations wrapped in &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt; tags for each segment.</p>
+            <textarea id="promptTemplate" class="form-control" rows="4"></textarea>
+          </div>
+        </div>
+
+        <!-- New section for debugging LLM requests and responses -->
+        <div class="settings-section">
+          <h2>LLM Debug</h2>
+          <p class="help-text">View the last LLM request and response for debugging purposes.</p>
+          <button id="toggleDebugBtn" class="small-button" style="margin-bottom: 10px;">Show Debug Info</button>
+          <div id="llmDebugContent" style="display: none; border-top: 1px solid #eee; padding-top: 15px; margin-top:15px;">
+            <div class="debug-controls">
+              <button id="refreshLLMDataBtn" class="small-button">Refresh Data</button>
+            </div>
+            
+            <div class="form-group">
+              <label for="lastRequestInfo">Last Request Info:</label>
+              <div id="lastRequestInfo" class="debug-info">No request data available</div>
+            </div>
+            
+            <div class="form-group">
+              <label for="lastRequestPrompt">Last Request Prompt:</label>
+              <textarea id="lastRequestPrompt" class="form-control debug-textarea" rows="6" readonly></textarea>
+            </div>
+            
+            <div class="form-group">
+              <label for="lastResponseInfo">Last Response Info:</label>
+              <div id="lastResponseInfo" class="debug-info">No response data available</div>
+            </div>
+            
+            <div class="form-group">
+              <label for="lastResponseContent">Last Response Content:</label>
+              <textarea id="lastResponseContent" class="form-control debug-textarea" rows="10" readonly></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="button-group" style="margin-top: 25px;">
+          <button id="saveBtn" class="primary-button">Save Settings</button>
+        </div>
+        <p id="status" class="status-message"></p>
+      </div>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html> 
