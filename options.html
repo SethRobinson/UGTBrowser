@@ -1,43 +1,44 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UGTBrowser Settings</title>
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <div class="container">
-      <header style="display: flex; align-items: center; margin-bottom: 20px;">
-        <img src="icon.png" alt="UGTBrowser Logo" style="height: 48px; width: 48px; margin-right: 15px;">
+      <header>
+        <img src="icon.png" alt="UGTBrowser Logo" class="header-logo">
         <h1>UGTBrowser Settings</h1>
       </header>
-      <div id="aboutSection" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
-        <h2 style="margin-top: 0; margin-bottom: 10px;">About UGTBrowser</h2>
-        <p style="margin-bottom: 5px;">
+      <div id="aboutSection">
+        <h2>About UGTBrowser</h2>
+        <p>
           UGTBrowser is an extension for inline AI translation, created by Seth A. Robinson.
         </p>
-        <p style="margin-top: 5px;">
+        <p>
           Connect with Seth:
-          <a href="https://www.rtsoft.com/" target="_blank" title="RTsoft Homepage">Homepage</a> |
-          <a href="https://twitter.com/rtsoft" target="_blank" title="RTsoft on Twitter">Twitter</a> |
-          <a href="https://bsky.app/profile/rtsoft.com" target="_blank" title="RTsoft on Bluesky">Bluesky</a>
+          <a href="https://www.rtsoft.com/" target="_blank" title="RTsoft Homepage" rel="noopener">Homepage</a> |
+          <a href="https://twitter.com/rtsoft" target="_blank" title="RTsoft on Twitter" rel="noopener">Twitter</a> |
+          <a href="https://bsky.app/profile/rtsoft.com" target="_blank" title="RTsoft on Bluesky" rel="noopener">Bluesky</a>
         </p>
       </div>
-      <div id="usageInstructions" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
-        <h2 style="margin-top: 0; margin-bottom: 10px;">How to Translate</h2>
-        <p style="margin-bottom: 5px;">
+      <div id="usageInstructions">
+        <h2>How to Translate</h2>
+        <p>
           To translate text on any webpage:
           <ol>
             <li>Highlight the text you want to translate.</li>
             <li>Right-click on the highlighted text.</li>
             <li>Select the Translate to (language) with (provider) (UGTBrowser) option from the context menu.</li>
-            <p>Note: This option only shows up if you right-click highlighted text!</p>
           </ol>
+          <p>Note: This option only shows up if you right-click highlighted text!</p>
         </p>
       </div>
 
-      <div id="githubSection" style="padding: 15px 0px; border-bottom: 1px solid #eee; margin-bottom: 25px; font-size: 1.5em;">
-        <h2 style="margin-top: 0; margin-bottom: 10px;">Comments or problems? Check out the <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" title="UGTBrowser on GitHub">UGTBrowser github</a>.</h2>
+      <div id="githubSection">
+        <h2>Comments or problems? Check out the <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" title="UGTBrowser on GitHub" rel="noopener">UGTBrowser github</a>.</h2>
       </div>
 
       <div class="settings-panel">
@@ -153,24 +154,24 @@
           <div class="form-group" id="openaiKeyWrapper">
             <label for="openaiApiKey">OpenAI API Key:</label>
             <input type="password" id="openaiApiKey" class="form-control" placeholder="Enter OpenAI API key" />
-            <div class="api-key-help" id="openaiApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
-              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
+            <div class="api-key-help" id="openaiApiKeyHelp">
+              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>.
             </div>
           </div>
           
           <div class="form-group" id="anthropicKeyWrapper">
             <label for="anthropicApiKey">Anthropic API Key:</label>
             <input type="password" id="anthropicApiKey" class="form-control" placeholder="Enter Anthropic API key" />
-            <div class="api-key-help" id="anthropicApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
-              Obtain your Anthropic API key from the <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a> (Account Settings).
+            <div class="api-key-help" id="anthropicApiKeyHelp">
+              Obtain your Anthropic API key from the <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Console</a> (Account Settings).
             </div>
           </div>
           
           <div class="form-group" id="geminiKeyWrapper">
             <label for="geminiApiKey">Google Gemini API Key:</label>
             <input type="password" id="geminiApiKey" class="form-control" placeholder="Enter Google Gemini API key" />
-            <div class="api-key-help" id="geminiApiKeyHelp" style="display:none; font-size:0.85em; margin-top:6px; color:#555;">
-              Generate your Google Gemini API key via <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+            <div class="api-key-help" id="geminiApiKeyHelp">
+              Generate your Google Gemini API key via <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a>.
             </div>
           </div>
 
@@ -188,8 +189,8 @@
         <div class="settings-section">
           <h2>LLM Debug</h2>
           <p class="help-text">View the last LLM request and response for debugging purposes.</p>
-          <button id="toggleDebugBtn" class="small-button" style="margin-bottom: 10px;">Show Debug Info</button>
-          <div id="llmDebugContent" style="display: none; border-top: 1px solid #eee; padding-top: 15px; margin-top:15px;">
+          <button id="toggleDebugBtn" class="small-button">Show Debug Info</button>
+          <div id="llmDebugContent">
             <div class="debug-controls">
               <button id="refreshLLMDataBtn" class="small-button">Refresh Data</button>
             </div>
@@ -216,7 +217,7 @@
           </div>
         </div>
 
-        <div class="button-group" style="margin-top: 25px;">
+        <div class="button-group">
           <button id="saveBtn" class="primary-button">Save Settings</button>
         </div>
         <p id="status" class="status-message"></p>
