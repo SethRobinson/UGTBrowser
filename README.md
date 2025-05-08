@@ -26,6 +26,7 @@ Note:  I used "UGT" in the name because I might add more game-specific features 
 ## Features
 
 *   Translate selected text using the latest LLM models (Open, Anthropic, Google)
+* Support for a secondary "Creative task", for example, summarize everything into a poem at the end or explain cultural notes.
 *   Securely stores your API keys and settings locally in your browser.  
 *   Nothing is sent out except the text to the LLM providers you're using.
 *   Customizable prompt template for advanced users.
