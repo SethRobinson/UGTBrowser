@@ -22,10 +22,11 @@ To use the translation features of UGTBrowser, you are required to provide your 
     *   Your API keys are stored locally on your computer using Chrome's storage API (`chrome.storage.local`). They are not synced with the cloud or across your devices.
     *   These keys are used solely by the extension to authenticate your requests directly with the chosen LLM provider.
     *   **Your API keys are never transmitted to Robinson Technologies Corporation or any other third party by the UGTBrowser extension itself.**
-*   **Highlighted Text for Translation:**
+*   **Highlighted Text & LLM Debug Data:**
     *   When you select text and choose to translate it, that selected text is sent directly from your browser to the API of the LLM provider you have configured (e.g., OpenAI, Anthropic, Google Gemini).
     *   This text is sent solely for the purpose of obtaining a translation.
-    *   The UGTBrowser extension does not store this highlighted text after the translation request is completed.
+    *   For the "LLM Debug" feature in the extension's options, UGTBrowser temporarily keeps the content of the last request sent to the LLM (which includes the highlighted text and the constructed prompt) and the last response received from the LLM in your browser's memory.
+    *   This debug information is only accessible via the options page and is cleared when your browser session ends (e.g., when the browser is closed) or when a new translation is initiated. It is not permanently stored on your computer or synced.
 
 ## 4. Third-Party LLM Services
 
