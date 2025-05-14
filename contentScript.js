@@ -358,7 +358,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           if (streamBuffer.length > 0 && lastTranslatedElement) {
             const extraText = streamBuffer.trim();
             if (extraText) {
-              console.log("Appending extra text after last translation:", extraText);
+              //console.log("Appending extra text after last translation:", extraText);
               const extraTextContainer = document.createElement('div');
               extraTextContainer.textContent = extraText; 
               // Basic styling for the appended text container
@@ -595,7 +595,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     currentStreamingText = ""; // Initialize for the new translation stream
     currentTranslationSettings = { ...settings }; // Store settings for current translation
 
-    console.log("Sending text payload for translation construction in background.js:", textPayload);
+    //console.log("Sending text payload for translation construction in background.js:", textPayload);
 
     try {
       chrome.runtime.sendMessage(
@@ -617,7 +617,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 hideOverlay();
                 return;
             }
-            console.log("FETCH_TRANSLATION sent, background responded:", resp);
+            //console.log("FETCH_TRANSLATION sent, background responded:", resp);
         }
       );
     } catch (e) {
@@ -976,12 +976,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               timestamp: now 
             });
           } catch (e) {
-            console.error("Error sending heartbeat, connection may be lost:", e);
-            // Clean up the interval if we can't send
+            console.error("Error sending heartbeat, connection may be lost:", e.message);
             if (streamHeartbeatInterval) {
               clearInterval(streamHeartbeatInterval);
               streamHeartbeatInterval = null;
             }
+            streamingPort = null; // Ensure this port reference is cleared
           }
         }
       } else {

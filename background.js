@@ -344,10 +344,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         // Relying on manifest.json's "all_frames": true for content_scripts.
         
         // MODIFIED: Added frameId to options for sendMessage, using info.frameId
-        chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId });
-
+        // Added callback for error handling
+        chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(`Error sending TRANSLATE_SELECTION to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+            // User could be notified here if this initial message fails.
+          } else {
+            // Optional: console.log("TRANSLATE_SELECTION message sent, response from content script:", response);
+          }
+        });
       } catch (error) { 
-        console.error("Error in context menu click handler (outer try-catch):", error);
+        // This catch block might still be useful for synchronous errors during messagePayload construction,
+        // though less likely to catch the "no receiving end" for sendMessage with a callback.
+        console.error("Synchronous error in context menu click handler:", error.message);
       }
     });
   } 
