@@ -314,10 +314,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             try {
               console.log("Translation complete, disconnecting streaming port from content script.");
               streamingPort.disconnect();
+              streamingPort = null; // Set to null immediately to prevent race conditions
             } catch (e) {
               console.warn("Error disconnecting port on stream complete:", e);
+              streamingPort = null; // Also set to null if there was an error
             }
-            // streamingPort = null; // The onDisconnect listener will handle this.
           }
 
         } else if (msg.type === "STREAM_ERROR") {
