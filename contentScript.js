@@ -15,6 +15,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let lastActivityTime = 0;
   let streamHeartbeatInterval = null;
   let currentStreamingText = "";
+  let currentTranslationSettings = null; // Added to store current translation settings
   let streamingActiveFrags = null;
   let streamingRange = null;
   let lastProcessTime = 0;
@@ -27,6 +28,21 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+  }
+
+  // NEW: Helper function to check for Asian languages that don't use spaces
+  function TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(targetLang) {
+    if (!targetLang) return false; // Default to space-using if lang is unknown or not provided
+    const lang = targetLang.toLowerCase();
+    // List of common language codes/names for CJKT languages + Vietnamese
+    const asianLanguagesWithoutSpaces = [
+      'ja', 'japanese', // Japanese
+      'zh', 'chinese', // Chinese (covers various dialects like Mandarin, Cantonese)
+      'ko', 'korean',  // Korean
+      'th', 'thai',    // Thai
+      'vi', 'vietnamese' // Vietnamese
+    ];
+    return asianLanguagesWithoutSpaces.some(l => lang.includes(l));
   }
 
   document.addEventListener("selectionchange", () => {
@@ -173,7 +189,58 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             
             const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
-              targetSpan.innerHTML = translatedContent; // Use innerHTML to render potential HTML tags in translation
+              let finalTranslatedContent = translatedContent;
+              if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
+                  !TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(currentTranslationSettings.targetLang)) {
+                
+                let textOfPrevElement = "";
+                let prevNode = targetSpan.previousSibling;
+
+                if (!prevNode && targetSpan.parentNode && targetSpan.parentNode !== document.body && targetSpan.parentNode !== document.documentElement) {
+                    if (targetSpan.parentNode.firstChild === targetSpan) {
+                        prevNode = targetSpan.parentNode.previousSibling;
+                    }
+                }
+
+                let actualPrevContentNode = null;
+                while(prevNode) {
+                    if (prevNode.nodeType === Node.ELEMENT_NODE) {
+                        actualPrevContentNode = prevNode;
+                        break;
+                    }
+                    if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent.trim() !== "") {
+                        actualPrevContentNode = prevNode;
+                        break;
+                    }
+                    prevNode = prevNode.previousSibling;
+                }
+
+                if (actualPrevContentNode) {
+                    textOfPrevElement = actualPrevContentNode.textContent || "";
+                }
+
+                if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
+                    const lastCharOfPrev = textOfPrevElement.slice(-1);
+                    const firstCharOfCurrent = finalTranslatedContent.charAt(0);
+
+                    if (lastCharOfPrev !== ' ' && firstCharOfCurrent !== ' ') {
+                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '”', '’', '"', '\'', '%', '>'];
+                        const noSpaceAfterThese = ['(', '[', '{', '“', '‘', '"', '\'', '<'];
+                        
+                        let shouldAddSpace = true;
+                        if (noSpaceBeforeThese.includes(firstCharOfCurrent)) {
+                            shouldAddSpace = false;
+                        } else if (noSpaceAfterThese.includes(lastCharOfPrev)) {
+                            shouldAddSpace = false;
+                        }
+
+                        if (shouldAddSpace) {
+                            finalTranslatedContent = " " + finalTranslatedContent;
+                        }
+                    }
+                }
+              }
+              targetSpan.innerHTML = finalTranslatedContent;
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`No placeholder span found for ugt_id: ${ugtId}`);
@@ -228,7 +295,58 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
             const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
-              targetSpan.innerHTML = translatedContent;
+              let finalTranslatedContent = translatedContent;
+              if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
+                  !TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(currentTranslationSettings.targetLang)) {
+                
+                let textOfPrevElement = "";
+                let prevNode = targetSpan.previousSibling;
+
+                if (!prevNode && targetSpan.parentNode && targetSpan.parentNode !== document.body && targetSpan.parentNode !== document.documentElement) {
+                    if (targetSpan.parentNode.firstChild === targetSpan) {
+                        prevNode = targetSpan.parentNode.previousSibling;
+                    }
+                }
+                
+                let actualPrevContentNode = null;
+                while(prevNode) {
+                    if (prevNode.nodeType === Node.ELEMENT_NODE) {
+                        actualPrevContentNode = prevNode;
+                        break;
+                    }
+                    if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent.trim() !== "") {
+                        actualPrevContentNode = prevNode;
+                        break;
+                    }
+                    prevNode = prevNode.previousSibling;
+                }
+
+                if (actualPrevContentNode) {
+                    textOfPrevElement = actualPrevContentNode.textContent || "";
+                }
+
+                if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
+                    const lastCharOfPrev = textOfPrevElement.slice(-1);
+                    const firstCharOfCurrent = finalTranslatedContent.charAt(0);
+
+                    if (lastCharOfPrev !== ' ' && firstCharOfCurrent !== ' ') {
+                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '”', '’', '"', '\'', '%', '>'];
+                        const noSpaceAfterThese = ['(', '[', '{', '“', '‘', '"', '\'', '<'];
+                        
+                        let shouldAddSpace = true;
+                        if (noSpaceBeforeThese.includes(firstCharOfCurrent)) {
+                            shouldAddSpace = false;
+                        } else if (noSpaceAfterThese.includes(lastCharOfPrev)) {
+                            shouldAddSpace = false;
+                        }
+
+                        if (shouldAddSpace) {
+                            finalTranslatedContent = " " + finalTranslatedContent;
+                        }
+                    }
+                }
+              }
+              targetSpan.innerHTML = finalTranslatedContent;
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`(Complete) No placeholder span for ugt_id: ${ugtId}`);
@@ -474,7 +592,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     initialInsertionHasOccurred = true;
 
     streamingRange = range; 
-    // currentStreamingText is initialized in onConnect or through stream, no need to set to "" here.
+    currentStreamingText = ""; // Initialize for the new translation stream
+    currentTranslationSettings = { ...settings }; // Store settings for current translation
 
     console.log("Sending text payload for translation construction in background.js:", textPayload);
 
