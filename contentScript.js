@@ -26,6 +26,27 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
 
+  // Helper function to get the content of the innermost/last valid segment for a given ID
+  function getInnermostTranslatedSegment(originalId, contentBlock, segmentRegex) {
+    let lastMatchingContentForId = null;
+    let match;
+    
+    // Create a temporary regex object if the passed one has global flag, 
+    // to avoid state issues if this function is called in a loop that also uses the same global regex.
+    // Or, ensure segmentRegex passed is always a new instance for this local search.
+    // For now, assuming segmentRegex can be reused if lastIndex is managed.
+    const localRegex = new RegExp(segmentRegex.source, segmentRegex.flags.replace('g', '') + 'g'); // Ensure it has 'g' for exec loop
+
+    while ((match = localRegex.exec(contentBlock)) !== null) {
+        if (match[1] === originalId) {
+            lastMatchingContentForId = match[2]; // Keep track of the latest content for this originalId
+        }
+    }
+    
+    // If we found specific content for the originalId, return that. Otherwise, return the original block.
+    return lastMatchingContentForId !== null ? lastMatchingContentForId : contentBlock;
+  }
+
   function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   }
@@ -183,7 +204,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
           while ((match = tagRegex.exec(streamBuffer)) !== null) {
             const ugtId = match[1];
-            const translatedContent = match[2];
+            let translatedContent = match[2];
+            
+            // Refine translatedContent to get the innermost/last segment for this ugtId
+            translatedContent = getInnermostTranslatedSegment(ugtId, translatedContent, tagRegex);
             
             // console.log(`Found tagged translation: ID=${ugtId}, Content Length=${translatedContent.length}`);
             
@@ -194,30 +218,19 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                   !TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(currentTranslationSettings.targetLang)) {
                 
                 let textOfPrevElement = "";
-                let prevNode = targetSpan.previousSibling;
-
-                if (!prevNode && targetSpan.parentNode && targetSpan.parentNode !== document.body && targetSpan.parentNode !== document.documentElement) {
-                    if (targetSpan.parentNode.firstChild === targetSpan) {
-                        prevNode = targetSpan.parentNode.previousSibling;
-                    }
+                if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
+                  textOfPrevElement = lastTranslatedElement.textContent || "";
                 }
-
-                let actualPrevContentNode = null;
-                while(prevNode) {
-                    if (prevNode.nodeType === Node.ELEMENT_NODE) {
-                        actualPrevContentNode = prevNode;
-                        break;
-                    }
-                    if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent.trim() !== "") {
-                        actualPrevContentNode = prevNode;
-                        break;
-                    }
-                    prevNode = prevNode.previousSibling;
+                
+                // ---- DIAGNOSTIC LOGGING START ----
+                console.log("[UGT Space Debug] For targetSpan:", targetSpan);
+                console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
+                if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
+                  console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
                 }
-
-                if (actualPrevContentNode) {
-                    textOfPrevElement = actualPrevContentNode.textContent || "";
-                }
+                console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
+                console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
+                // ---- DIAGNOSTIC LOGGING END ----
 
                 if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
                     const lastCharOfPrev = textOfPrevElement.slice(-1);
@@ -236,11 +249,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
                         if (shouldAddSpace) {
                             finalTranslatedContent = " " + finalTranslatedContent;
+                            console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
                     }
                 }
               }
-              targetSpan.innerHTML = finalTranslatedContent;
+              targetSpan.textContent = finalTranslatedContent;
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`No placeholder span found for ugt_id: ${ugtId}`);
@@ -287,7 +301,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           let lastIndex = 0;
           while ((match = tagRegex.exec(streamBuffer)) !== null) {
             const ugtId = match[1];
-            const translatedContent = match[2];
+            let translatedContent = match[2];
+            
+            // Refine translatedContent
+            translatedContent = getInnermostTranslatedSegment(ugtId, translatedContent, tagRegex);
             
             // Append to our assembled string, assuming segments are plain text or simple HTML
             // If segments can be complex HTML that shouldn't be joined by newlines, adjust accordingly.
@@ -300,30 +317,19 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                   !TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(currentTranslationSettings.targetLang)) {
                 
                 let textOfPrevElement = "";
-                let prevNode = targetSpan.previousSibling;
-
-                if (!prevNode && targetSpan.parentNode && targetSpan.parentNode !== document.body && targetSpan.parentNode !== document.documentElement) {
-                    if (targetSpan.parentNode.firstChild === targetSpan) {
-                        prevNode = targetSpan.parentNode.previousSibling;
-                    }
+                if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
+                  textOfPrevElement = lastTranslatedElement.textContent || "";
                 }
                 
-                let actualPrevContentNode = null;
-                while(prevNode) {
-                    if (prevNode.nodeType === Node.ELEMENT_NODE) {
-                        actualPrevContentNode = prevNode;
-                        break;
-                    }
-                    if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent.trim() !== "") {
-                        actualPrevContentNode = prevNode;
-                        break;
-                    }
-                    prevNode = prevNode.previousSibling;
+                // ---- DIAGNOSTIC LOGGING START ----
+                console.log("[UGT Space Debug] For targetSpan:", targetSpan);
+                console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
+                if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
+                  console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
                 }
-
-                if (actualPrevContentNode) {
-                    textOfPrevElement = actualPrevContentNode.textContent || "";
-                }
+                console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
+                console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
+                // ---- DIAGNOSTIC LOGGING END ----
 
                 if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
                     const lastCharOfPrev = textOfPrevElement.slice(-1);
@@ -342,11 +348,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
                         if (shouldAddSpace) {
                             finalTranslatedContent = " " + finalTranslatedContent;
+                            console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
                     }
                 }
               }
-              targetSpan.innerHTML = finalTranslatedContent;
+              targetSpan.textContent = finalTranslatedContent;
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`(Complete) No placeholder span for ugt_id: ${ugtId}`);
@@ -485,9 +492,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             let lastIndex = 0;
             while ((match = tagRegex.exec(streamBuffer)) !== null) {
                 const ugtId = match[1];
-                const translatedContent = match[2];
+                let translatedContent = match[2];
+                // Refine translatedContent
+                translatedContent = getInnermostTranslatedSegment(ugtId, translatedContent, tagRegex);
                 const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
-                if (targetSpan) targetSpan.innerHTML = translatedContent;
+                if (targetSpan) targetSpan.textContent = translatedContent;
                 lastIndex = tagRegex.lastIndex;
             }
             streamBuffer = "";
