@@ -223,13 +223,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 }
                 
                 // ---- DIAGNOSTIC LOGGING START ----
-                console.log("[UGT Space Debug] For targetSpan:", targetSpan);
-                console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
+                //console.log("[UGT Space Debug] For targetSpan:", targetSpan);
+                //console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
                 if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
-                  console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
+                  //console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
                 }
-                console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
-                console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
+                //console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
+                //console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
                 // ---- DIAGNOSTIC LOGGING END ----
 
                 if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
@@ -249,7 +249,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
                         if (shouldAddSpace) {
                             finalTranslatedContent = " " + finalTranslatedContent;
-                            console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
+                            //console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
                     }
                 }
@@ -322,13 +322,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 }
                 
                 // ---- DIAGNOSTIC LOGGING START ----
-                console.log("[UGT Space Debug] For targetSpan:", targetSpan);
-                console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
+                //console.log("[UGT Space Debug] For targetSpan:", targetSpan);
+                //console.log("[UGT Space Debug] lastTranslatedElement:", lastTranslatedElement);
                 if (lastTranslatedElement && lastTranslatedElement !== targetSpan) {
-                  console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
+                  //console.log("[UGT Space Debug] lastTranslatedElement.textContent:", lastTranslatedElement.textContent);
                 }
-                console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
-                console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
+                //console.log("[UGT Space Debug] textOfPrevElement:", textOfPrevElement);
+                //console.log("[UGT Space Debug] finalTranslatedContent (before space logic for current span):", finalTranslatedContent);
                 // ---- DIAGNOSTIC LOGGING END ----
 
                 if (textOfPrevElement.length > 0 && finalTranslatedContent.length > 0) {
@@ -348,7 +348,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
                         if (shouldAddSpace) {
                             finalTranslatedContent = " " + finalTranslatedContent;
-                            console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
+                            //console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
                     }
                 }
