@@ -42,14 +42,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else if (msg.type === "PING") {
       sendResponse({ status: "ok" });
     } else if (msg.type === "UGT_SHOW_OVERLAY" && window.self === window.top) {
-      console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
+      //console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
       showOverlay(msg.provider);
     } else if (msg.type === "UGT_HIDE_OVERLAY" && window.self === window.top) {
       hideOverlay(msg.force);
     } else if (msg.type === "UGT_SHOW_ERROR" && window.self === window.top) {
       showCustomError(msg.message, msg.errorContext);
     } else if (msg.type === "UGT_UPDATE_OVERLAY_PREVIEW" && window.self === window.top) {
-      console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW, text length:", msg.text.length);
+      //console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW, text length:", msg.text.length);
       if (overlayDiv) {
         const previewArea = overlayDiv.querySelector('.translation-preview');
         if (previewArea) {
@@ -83,7 +83,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
       }
     } else if (msg.type === "UGT_UPDATE_OVERLAY_PREVIEW_RELAY" && window.self === window.top) {
-      console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, text length:", msg.text.length);
+      //console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, text length:", msg.text.length);
       if (overlayDiv) {
         const previewArea = overlayDiv.querySelector('.translation-preview');
         if (previewArea) {
@@ -117,7 +117,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
       }
     } else if (msg.type === "UGT_OPEN_PREVIEW" && window.self === window.top) {
-      console.log("[contentScript.js] Top frame received UGT_OPEN_PREVIEW");
+      //console.log("[contentScript.js] Top frame received UGT_OPEN_PREVIEW");
       if (overlayDiv) {
         const previewArea = overlayDiv.querySelector('.translation-preview');
         const toggleBtn = overlayDiv.querySelector('.toggle-btn');

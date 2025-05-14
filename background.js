@@ -277,11 +277,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   } else if (message.type === "UGT_SHOW_OVERLAY_RELAY") {
-    console.log("[background.js] Received UGT_SHOW_OVERLAY_RELAY, relaying to tab", sender.tab.id, "provider:", message.provider);
+    //console.log("[background.js] Received UGT_SHOW_OVERLAY_RELAY, relaying to tab", sender.tab.id, "provider:", message.provider);
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_OVERLAY", provider: message.provider });
     return;
   } else if (message.type === "UGT_HIDE_OVERLAY_RELAY") {
-    console.log("[background.js] Received UGT_HIDE_OVERLAY_RELAY, relaying to tab", sender.tab.id, "force:", message.force);
+    //console.log("[background.js] Received UGT_HIDE_OVERLAY_RELAY, relaying to tab", sender.tab.id, "force:", message.force);
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_HIDE_OVERLAY", force: message.force });
     return;
   } else if (message.type === "UGT_SHOW_ERROR_RELAY") {
@@ -289,15 +289,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_ERROR", message: message.message, errorContext: message.errorContext });
     return;
   } else if (message.type === "UGT_UPDATE_OVERLAY_PREVIEW_RELAY") {
-    console.log("[background.js] Received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, relaying to tab", sender.tab.id, "text length:", message.text.length);
+    //console.log("[background.js] Received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, relaying to tab", sender.tab.id, "text length:", message.text.length);
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_UPDATE_OVERLAY_PREVIEW", text: message.text });
     return;
   } else if (message.type === "UGT_TRANSLATION_COMPLETE_RELAY") {
-    console.log("[background.js] Received UGT_TRANSLATION_COMPLETE_RELAY, relaying to tab", sender.tab.id);
+    //console.log("[background.js] Received UGT_TRANSLATION_COMPLETE_RELAY, relaying to tab", sender.tab.id);
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_TRANSLATION_COMPLETE", provider: message.provider });
     return;
   } else if (message.type === "UGT_OPEN_PREVIEW_RELAY") {
-    console.log("[background.js] Received UGT_OPEN_PREVIEW_RELAY, relaying to tab", sender.tab.id);
+    //console.log("[background.js] Received UGT_OPEN_PREVIEW_RELAY, relaying to tab", sender.tab.id);
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_OPEN_PREVIEW", text: message.text });
     return;
   }
