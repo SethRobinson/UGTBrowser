@@ -249,6 +249,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               extraTextContainer.style.border = '1px dashed #ccc';
               extraTextContainer.style.marginTop = '5px';
               extraTextContainer.style.backgroundColor = '#f9f9f9';
+              extraTextContainer.style.color = '#222222'; // Ensure text is dark and readable
+              extraTextContainer.style.fontWeight = '400'; // Slightly bolder for better readability
               
               if (lastTranslatedElement.parentNode) {
                 lastTranslatedElement.parentNode.insertBefore(extraTextContainer, lastTranslatedElement.nextSibling);
