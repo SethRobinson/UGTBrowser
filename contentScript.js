@@ -40,10 +40,100 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     if (msg.type === "TRANSLATE_SELECTION") {
       handleTranslate(msg.text, msg.settings);
     } else if (msg.type === "PING") {
-      // Respond to ping to indicate the content script is loaded
       sendResponse({ status: "ok" });
+    } else if (msg.type === "UGT_SHOW_OVERLAY" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
+      showOverlay(msg.provider);
+    } else if (msg.type === "UGT_HIDE_OVERLAY" && window.self === window.top) {
+      hideOverlay(msg.force);
+    } else if (msg.type === "UGT_SHOW_ERROR" && window.self === window.top) {
+      showCustomError(msg.message, msg.errorContext);
+    } else if (msg.type === "UGT_UPDATE_OVERLAY_PREVIEW" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW, text length:", msg.text.length);
+      if (overlayDiv) {
+        const previewArea = overlayDiv.querySelector('.translation-preview');
+        if (previewArea) {
+          previewArea.textContent = msg.text;
+          previewArea.scrollTop = previewArea.scrollHeight;
+        }
+      }
+    } else if (msg.type === "UGT_TRANSLATION_COMPLETE" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_TRANSLATION_COMPLETE");
+      if (overlayDiv) {
+        const textSpan = overlayDiv.querySelector('.overlay-text');
+        if (textSpan && textSpan.textContent.includes("Streaming")) {
+          const provider = msg.provider || textSpan.textContent.split(" ").pop();
+          textSpan.textContent = `Translation from ${provider} complete`;
+        }
+        
+        // Stop spinner/timer
+        if (animationInterval) {
+          clearInterval(animationInterval);
+          animationInterval = null;
+        }
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        
+        // Only hide if preview isn't showing
+        const previewArea = overlayDiv.querySelector('.translation-preview');
+        if (!previewArea || previewArea.style.display === "none") {
+          hideOverlay();
+        }
+      }
+    } else if (msg.type === "UGT_UPDATE_OVERLAY_PREVIEW_RELAY" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, text length:", msg.text.length);
+      if (overlayDiv) {
+        const previewArea = overlayDiv.querySelector('.translation-preview');
+        if (previewArea) {
+          previewArea.textContent = msg.text;
+          previewArea.scrollTop = previewArea.scrollHeight;
+        }
+      }
+    } else if (msg.type === "UGT_TRANSLATION_COMPLETE_RELAY" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_TRANSLATION_COMPLETE_RELAY, provider:", msg.provider);
+      if (overlayDiv) {
+        const textSpan = overlayDiv.querySelector('.overlay-text');
+        if (textSpan && textSpan.textContent.includes("Streaming")) {
+          const provider = msg.provider || textSpan.textContent.split(" ").pop();
+          textSpan.textContent = `Translation from ${provider} complete`;
+        }
+        
+        // Stop spinner/timer
+        if (animationInterval) {
+          clearInterval(animationInterval);
+          animationInterval = null;
+        }
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        
+        // Only hide if preview isn't showing
+        const previewArea = overlayDiv.querySelector('.translation-preview');
+        if (!previewArea || previewArea.style.display === "none") {
+          hideOverlay();
+        }
+      }
+    } else if (msg.type === "UGT_OPEN_PREVIEW" && window.self === window.top) {
+      console.log("[contentScript.js] Top frame received UGT_OPEN_PREVIEW");
+      if (overlayDiv) {
+        const previewArea = overlayDiv.querySelector('.translation-preview');
+        const toggleBtn = overlayDiv.querySelector('.toggle-btn');
+        if (previewArea && previewArea.style.display === "none" && toggleBtn) {
+          previewArea.style.display = "block";
+          toggleBtn.innerHTML = "▲"; // Pointing up when open
+          // Update preview content
+          if (msg.text) {
+            previewArea.textContent = msg.text;
+          } else {
+            previewArea.textContent = currentStreamingText || "No translation data yet...";
+          }
+          previewArea.scrollTop = previewArea.scrollHeight;
+        }
+      }
     }
-    // Return true if we want to send a response asynchronously
     return msg.type === "PING";
   });
 
@@ -97,6 +187,20 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           }
           
           currentStreamingText = streamBuffer; // Update currentStreamingText for live preview
+          
+          // Relay preview to top frame if in iframe
+          if (window.self !== window.top) {
+            chrome.runtime.sendMessage({ type: "UGT_UPDATE_OVERLAY_PREVIEW_RELAY", text: currentStreamingText });
+            
+            // Check if overlay preview should be automatically displayed (like when clicking chevron)
+            if (overlayDiv) {
+              const previewArea = overlayDiv.querySelector('.translation-preview');
+              if (previewArea && previewArea.style.display === "block") {
+                // If preview is open in iframe, request the top frame to open it too
+                chrome.runtime.sendMessage({ type: "UGT_OPEN_PREVIEW_RELAY" });
+              }
+            }
+          }
 
           // Update preview area if visible
           if (overlayDiv) {
@@ -162,6 +266,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           streamBuffer = ""; // Clear buffer
           
           currentStreamingText = fullyAssembledTranslation.trim(); // Update with the final text for preview
+          
+          // Relay final preview to top frame if in iframe
+          if (window.self !== window.top) {
+            chrome.runtime.sendMessage({ type: "UGT_UPDATE_OVERLAY_PREVIEW_RELAY", text: currentStreamingText });
+            // Also relay translation completion status
+            chrome.runtime.sendMessage({ 
+              type: "UGT_TRANSLATION_COMPLETE_RELAY", 
+              provider: overlayDiv?.querySelector('.overlay-text')?.textContent.split(" ").pop() || "?"
+            });
+          }
           
           if (overlayDiv) {
             const textSpan = overlayDiv.querySelector('.overlay-text');
@@ -422,6 +536,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
 
   function showOverlay(provider) {
+    if (window.self !== window.top) {
+      console.log("[contentScript.js] iframe sending UGT_SHOW_OVERLAY_RELAY, provider:", provider);
+      chrome.runtime.sendMessage({ type: "UGT_SHOW_OVERLAY_RELAY", provider });
+      return;
+    }
     if (overlayDiv) hideOverlay(true);
     overlayStart = Date.now();
     overlayDiv = document.createElement("div");
@@ -585,6 +704,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
 
   function hideOverlay(force = false) {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_HIDE_OVERLAY_RELAY", force });
+      return;
+    }
     if (!overlayDiv) return;
     const elapsed = Date.now() - overlayStart;
     const minShow = 200;
@@ -609,6 +732,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
 
   function showCustomError(message, errorContext = null) {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_SHOW_ERROR_RELAY", message, errorContext });
+      return;
+    }
     if (errorModalDiv) { // Remove existing error modal if any
       errorModalDiv.remove();
       errorModalDiv = null;

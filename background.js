@@ -202,7 +202,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     actualPromptText = actualPromptText.replace("{{target}}", targetLang);
 
     if (settings.streaming) {
-      let port = chrome.tabs.connect(sender.tab.id, {name: "translation_stream"});
+      let port = chrome.tabs.connect(sender.tab.id, {name: "translation_stream", frameId: sender.frameId});
       if (chrome.runtime.lastError) {
         console.error("Failed to connect to tab:", chrome.runtime.lastError.message);
         // Potentially send an error response back to the original message sender
@@ -276,29 +276,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       lastResponse: lastLLMResponse
     });
     return true;
+  } else if (message.type === "UGT_SHOW_OVERLAY_RELAY") {
+    console.log("[background.js] Received UGT_SHOW_OVERLAY_RELAY, relaying to tab", sender.tab.id, "provider:", message.provider);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_OVERLAY", provider: message.provider });
+    return;
+  } else if (message.type === "UGT_HIDE_OVERLAY_RELAY") {
+    console.log("[background.js] Received UGT_HIDE_OVERLAY_RELAY, relaying to tab", sender.tab.id, "force:", message.force);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_HIDE_OVERLAY", force: message.force });
+    return;
+  } else if (message.type === "UGT_SHOW_ERROR_RELAY") {
+    console.log("[background.js] Received UGT_SHOW_ERROR_RELAY, relaying to tab", sender.tab.id);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_ERROR", message: message.message, errorContext: message.errorContext });
+    return;
+  } else if (message.type === "UGT_UPDATE_OVERLAY_PREVIEW_RELAY") {
+    console.log("[background.js] Received UGT_UPDATE_OVERLAY_PREVIEW_RELAY, relaying to tab", sender.tab.id, "text length:", message.text.length);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_UPDATE_OVERLAY_PREVIEW", text: message.text });
+    return;
+  } else if (message.type === "UGT_TRANSLATION_COMPLETE_RELAY") {
+    console.log("[background.js] Received UGT_TRANSLATION_COMPLETE_RELAY, relaying to tab", sender.tab.id);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_TRANSLATION_COMPLETE", provider: message.provider });
+    return;
+  } else if (message.type === "UGT_OPEN_PREVIEW_RELAY") {
+    console.log("[background.js] Received UGT_OPEN_PREVIEW_RELAY, relaying to tab", sender.tab.id);
+    chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_OPEN_PREVIEW", text: message.text });
+    return;
   }
 });
 
 // Helper function to check if content script is loaded
-async function checkIfContentScriptLoaded(tabId) {
-  // console.log(`Pinging content script in tab ${tabId}`);
-  return new Promise((resolve) => { // No reject needed, always resolve true/false
+async function checkIfContentScriptLoaded(tabId, frameId) {
+  // console.log(`Pinging content script in tab ${tabId}, frame ${frameId}`);
+  return new Promise((resolve) => { 
     chrome.tabs.sendMessage(
       tabId, 
       { type: "PING" }, 
-      (response) => { // Callback for the PING message
+      frameId !== undefined ? { frameId: frameId } : {}, 
+      (response) => { 
         if (chrome.runtime.lastError) {
-          // This means sendMessage itself failed (e.g., no context to receive in the tab, or tab closed)
-          // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId} failed. Error: ${chrome.runtime.lastError.message}`);
-          resolve(false); // Content script is not responsive or doesn't exist
+          // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId}, frame ${frameId} failed. Error: ${chrome.runtime.lastError.message}`);
+          resolve(false); 
         } else {
-          // Message was sent and content script responded (or didn't, but no sendMessage error)
           if (response && response.status === "ok") {
-            // console.log(`checkIfContentScriptLoaded: PING successful for tab ${tabId}`);
+            // console.log(`checkIfContentScriptLoaded: PING successful for tab ${tabId}, frame ${frameId}`);
             resolve(true);
           } else {
-            // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId} received no/invalid response. Response:`, response);
-            resolve(false); // Content script exists but didn't respond as expected
+            // console.warn(`checkIfContentScriptLoaded: PING to tab ${tabId}, frame ${frameId} received no/invalid response. Response:`, response);
+            resolve(false); 
           }
         }
       }
@@ -308,42 +331,26 @@ async function checkIfContentScriptLoaded(tabId) {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_ID && info.selectionText) {
-    chrome.storage.local.get(null, async (data) => { // storage.local.get callback is already async
+    chrome.storage.local.get(null, async (data) => { 
       const settings = data.settings || {};
-      const messagePayload = { // Renamed to avoid confusion
+      const messagePayload = { 
         type: "TRANSLATE_SELECTION",
         text: info.selectionText,
         settings
       };
       
       try {
-        let isLoaded = await checkIfContentScriptLoaded(tab.id);
+        // REMOVED: checkIfContentScriptLoaded and programmatic injection logic.
+        // Relying on manifest.json's "all_frames": true for content_scripts.
         
-        if (!isLoaded) {
-          console.log(`Content script not loaded for tab ${tab.id}, attempting to inject.`);
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              files: ["contentScript.js"]
-            });
-            console.log(`Content script injected for tab ${tab.id}.`);
-            // Assuming injection makes it ready, or sendMessage will report error if not.
-          } catch (injectionError) {
-            console.error(`Failed to inject content script into tab ${tab.id}:`, injectionError, chrome.runtime.lastError?.message);
-            return; // Do not proceed if injection failed.
-          }
-        }
-        
-        // Now send the message WITHOUT a callback, as contentScript doesn't send a direct reply
-        chrome.tabs.sendMessage(tab.id, messagePayload);
-        // No callback here, so no "message port closed" error if content script doesn't call sendResponse.
+        // MODIFIED: Added frameId to options for sendMessage, using info.frameId
+        chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId });
 
-      } catch (error) { // Catches errors from awaiting checkIfContentScriptLoaded or other unexpected issues
+      } catch (error) { 
         console.error("Error in context menu click handler (outer try-catch):", error);
       }
     });
   } 
-
 });
 
 // New streaming translation function
