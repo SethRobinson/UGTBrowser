@@ -76,8 +76,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "TRANSLATE_SELECTION") {
       handleTranslate(msg.text, msg.settings);
+      sendResponse();
+      return true;
     } else if (msg.type === "PING") {
       sendResponse({ status: "ok" });
+      return true;
     } else if (msg.type === "UGT_SHOW_OVERLAY" && window.self === window.top) {
       //console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
       showOverlay(msg.provider);

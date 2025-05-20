@@ -2,12 +2,11 @@
   "manifest_version": 3,
   "name": "UGTBrowser",
   "description": "Inline translation of highlighted text using state-of-the-art AI models (OpenAI, Anthropic Claude, Google Gemini).",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "permissions": [
     "contextMenus",
     "storage",
-    "activeTab",
-    "scripting"
+    "activeTab"
   ],
   "host_permissions": [
     "https://api.openai.com/*",
