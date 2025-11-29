@@ -13,8 +13,12 @@ UGTBrowser is a Chrome extension that allows you to translate highlighted text o
   <a href="media/ugtbrowser_1.png"><img src="media/ugtbrowser_1.png" alt="UGTBrowser Screenshot 1" width="200"/></a>
   <a href="media/ugtbrowser_2.png"><img src="media/ugtbrowser_2.png" alt="UGTBrowser Screenshot 2" width="200"/></a>
 </div>
-<br>
-Also check out [UGTLive](https://github.com/SethRobinson/UGTLive) (Good at translating live video/audio)
+
+Also check out [UGTLive](https://github.com/SethRobinson/UGTLive) (Good at translating live video/audio, uses your NVidia GPU to do stuff locally, things a browser plugin can't)
+
+## Quick install
+
+# [Install extension from Chrome Web Store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
 
 ## Why tho
 
@@ -48,7 +52,7 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ### Installing from the Chrome Store
 
-1.  **Download:** (Link to Chrome Web Store to be added later)
+1.  **Download:** [Chrome web store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
     *   (Recommended method for most users)
 
 ### Installing Manually (for development or offline use)
