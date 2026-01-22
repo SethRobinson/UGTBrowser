@@ -353,8 +353,352 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === "UGT_OPEN_PREVIEW_RELAY") {
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_OPEN_PREVIEW", text: message.text });
     return;
+  } else if (message.type === "CHAT_FOLLOWUP") {
+    // Handle follow-up chat questions about cultural nuances
+    const { question, originalText, culturalNuances, chatHistory } = message.payload;
+    
+    // Get current settings to use the same provider/model
+    chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
+      const settings = data.settings || {};
+      const provider = data.selectedProvider || settings.provider || 'openai';
+      const model = settings.model;
+      
+      // Get the appropriate API key
+      let apiKey;
+      if (provider === 'openai') {
+        apiKey = data.openaiApiKey;
+      } else if (provider === 'anthropic') {
+        apiKey = data.anthropicApiKey;
+      } else if (provider === 'gemini') {
+        apiKey = data.geminiApiKey;
+      }
+      
+      if (!apiKey) {
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "CHAT_STREAM_ERROR", 
+          error: `No API key configured for ${provider}. Please check your settings.`
+        }, { frameId: sender.frameId });
+        return;
+      }
+      
+      // Build the chat prompt with context
+      const chatPrompt = buildChatPrompt(question, originalText, culturalNuances, chatHistory);
+      
+      try {
+        // Use streaming for chat responses
+        await fetchChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings);
+        
+        // Send completion message
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "CHAT_STREAM_COMPLETE"
+        }, { frameId: sender.frameId });
+        
+      } catch (error) {
+        console.error("Chat followup error:", error);
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "CHAT_STREAM_ERROR", 
+          error: error.message || String(error)
+        }, { frameId: sender.frameId });
+      }
+    });
+    
+    sendResponse({ status: "chat_started" });
+    return true;
   }
 });
+
+// Build a prompt for follow-up chat questions
+function buildChatPrompt(question, originalText, culturalNuances, chatHistory) {
+  let prompt = `You are a helpful assistant that answers questions about translations and cultural context.
+
+Here is the context:
+
+**Original Text (before translation):**
+${originalText}
+
+**Cultural Nuances Explanation:**
+${culturalNuances}
+
+`;
+
+  // Add chat history if any
+  if (chatHistory && chatHistory.length > 0) {
+    prompt += `**Previous Conversation:**\n`;
+    for (const msg of chatHistory) {
+      const role = msg.role === 'user' ? 'User' : 'Assistant';
+      prompt += `${role}: ${msg.content}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `**Current Question:**
+${question}
+
+Please provide a helpful, concise answer. If the question relates to the translation or cultural aspects, use the context provided. Format your response clearly, using markdown for emphasis where appropriate.`;
+
+  return prompt;
+}
+
+// Streaming chat function for follow-up questions
+async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}) {
+  console.log(`Starting chat streaming for provider: ${provider}`);
+  
+  const sendChunk = (chunk) => {
+    chrome.tabs.sendMessage(tabId, { 
+      type: "CHAT_STREAM_CHUNK", 
+      chunk: chunk 
+    }, { frameId: frameId });
+  };
+  
+  switch (provider) {
+    case "openai":
+      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings);
+      break;
+    case "anthropic":
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk);
+      break;
+    case "gemini":
+      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings);
+      break;
+    default:
+      throw new Error(`Unknown provider: ${provider}`);
+  }
+}
+
+// OpenAI chat streaming
+async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings = {}) {
+  if (!apiKey) throw new Error("OpenAI API key is required");
+  
+  const modelToUse = model || "gpt-4o";
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  
+  const requestBody = {
+    model: modelToUse,
+    messages: [{ role: "user", content: prompt }],
+    stream: true
+  };
+  
+  if (supportsTemperature(modelToUse)) {
+    requestBody.temperature = 0.7; // Slightly higher for conversational responses
+  }
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
+  }
+  
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      buffer += chunk;
+      
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      
+      for (const line of lines) {
+        if (line.startsWith("data: ") && line !== "data: [DONE]") {
+          try {
+            const data = JSON.parse(line.substring(6));
+            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+              sendChunk(data.choices[0].delta.content);
+            }
+          } catch (e) {
+            // Ignore parse errors for incomplete JSON
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// Anthropic chat streaming
+async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk) {
+  if (!apiKey) throw new Error("Anthropic API key is required");
+  
+  const modelToUse = model || "claude-sonnet-4-5";
+  let maxTokens = 4096;
+  
+  if (modelToUse.includes("claude-sonnet-4-5") || modelToUse.includes("claude-opus-4-5") || modelToUse.includes("claude-haiku-4-5")) {
+    maxTokens = 8192;
+  }
+  
+  const endpoint = "https://api.anthropic.com/v1/messages";
+  const requestBody = {
+    model: modelToUse,
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: maxTokens,
+    stream: true
+  };
+  
+  if (supportsTemperature(modelToUse)) {
+    requestBody.temperature = 0.7;
+  }
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error?.message || `Anthropic API error: ${response.status}`);
+  }
+  
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      buffer += chunk;
+      
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      
+      for (const line of lines) {
+        if (line.trim() && line.startsWith("data:")) {
+          try {
+            const cleanedLine = line.substring(5).trim();
+            if (cleanedLine) {
+              const data = JSON.parse(cleanedLine);
+              if (data.type === "content_block_delta" && data.delta && data.delta.text) {
+                sendChunk(data.delta.text);
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// Gemini chat streaming
+async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings = {}) {
+  if (!apiKey) throw new Error("Google Gemini API key is required");
+  
+  const modelId = model || "gemini-1.5-pro";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?key=${apiKey}`;
+  
+  const generationConfig = { maxOutputTokens: 8192 };
+  if (supportsTemperature(modelId)) {
+    generationConfig.temperature = 0.7;
+  }
+  
+  const requestBody = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: generationConfig
+  };
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error?.message || `Gemini API error: ${response.status}`);
+  }
+  
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let openBraces = 0;
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      buffer += chunk;
+      
+      // Parse JSON objects from buffer
+      while (buffer.length > 0) {
+        buffer = buffer.trimStart();
+        if (buffer.startsWith(',')) {
+          buffer = buffer.substring(1).trimStart();
+        }
+        
+        if (buffer.length === 0) break;
+        
+        const jsonStart = buffer.indexOf('{');
+        if (jsonStart === -1) break;
+        
+        if (jsonStart > 0) {
+          buffer = buffer.substring(jsonStart);
+        }
+        
+        openBraces = 0;
+        let jsonEnd = -1;
+        
+        for (let i = 0; i < buffer.length; i++) {
+          if (buffer[i] === '{') openBraces++;
+          else if (buffer[i] === '}') {
+            openBraces--;
+            if (openBraces === 0) {
+              jsonEnd = i;
+              break;
+            }
+          }
+        }
+        
+        if (jsonEnd !== -1) {
+          const jsonStr = buffer.substring(0, jsonEnd + 1);
+          try {
+            const data = JSON.parse(jsonStr);
+            if (data.candidates && data.candidates[0]?.content?.parts) {
+              for (const part of data.candidates[0].content.parts) {
+                if (part.text) {
+                  sendChunk(part.text);
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+          buffer = buffer.substring(jsonEnd + 1);
+        } else {
+          break; // Need more data
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 // Helper function to check if content script is loaded
 async function checkIfContentScriptLoaded(tabId, frameId) {

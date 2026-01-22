@@ -23,6 +23,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let errorModalDiv = null; // For the custom error modal
   let lastTranslatedElement = null; // To track the last element where translation was inserted
 
+  // Chat context for follow-up questions
+  let chatContext = {
+    originalText: '',
+    culturalNuances: '',
+    chatHistory: [], // Array of {role: 'user'|'assistant', content: string}
+    activeContainer: null, // Reference to the cultural nuances container with chat
+    isStreaming: false,
+    providerName: '' // Name of the active LLM provider
+  };
+
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
 
@@ -82,6 +92,244 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
     
     return processedLines.join('');
+  }
+
+  // Function to create the chat interface for follow-up questions
+  function createChatInterface(container, culturalNuancesText) {
+    // Store context
+    chatContext.culturalNuances = culturalNuancesText;
+    chatContext.activeContainer = container;
+    chatContext.chatHistory = [];
+    
+    // Create chat section wrapper
+    const chatSection = document.createElement('div');
+    chatSection.className = 'ugt-chat-section';
+    Object.assign(chatSection.style, {
+      marginTop: '16px',
+      paddingTop: '12px',
+      borderTop: '1px solid rgba(107, 138, 253, 0.3)'
+    });
+    
+    // Chat history area (initially hidden, shows when there's history)
+    const chatHistory = document.createElement('div');
+    chatHistory.className = 'ugt-chat-history';
+    Object.assign(chatHistory.style, {
+      display: 'none',
+      maxHeight: '200px',
+      overflowY: 'auto',
+      marginBottom: '12px',
+      padding: '8px',
+      backgroundColor: 'rgba(255, 255, 255, 0.5)',
+      borderRadius: '6px'
+    });
+    chatSection.appendChild(chatHistory);
+    
+    // Input row container
+    const inputRow = document.createElement('div');
+    inputRow.className = 'ugt-chat-input-row';
+    Object.assign(inputRow.style, {
+      display: 'flex',
+      gap: '8px',
+      alignItems: 'center'
+    });
+    
+    // Text input
+    const chatInput = document.createElement('input');
+    chatInput.type = 'text';
+    chatInput.className = 'ugt-chat-input';
+    chatInput.placeholder = 'Ask a follow-up question...';
+    Object.assign(chatInput.style, {
+      flex: '1',
+      padding: '10px 14px',
+      border: '1px solid #d1d5db',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontFamily: 'inherit',
+      outline: 'none',
+      backgroundColor: '#ffffff',
+      color: '#1f2937',
+      transition: 'border-color 0.2s, box-shadow 0.2s'
+    });
+    
+    // Focus styles
+    chatInput.addEventListener('focus', () => {
+      chatInput.style.borderColor = '#6b8afd';
+      chatInput.style.boxShadow = '0 0 0 3px rgba(107, 138, 253, 0.15)';
+    });
+    chatInput.addEventListener('blur', () => {
+      chatInput.style.borderColor = '#d1d5db';
+      chatInput.style.boxShadow = 'none';
+    });
+    
+    // Send button
+    const sendButton = document.createElement('button');
+    sendButton.className = 'ugt-chat-send';
+    sendButton.textContent = 'Send';
+    Object.assign(sendButton.style, {
+      padding: '10px 18px',
+      backgroundColor: '#6b8afd',
+      color: '#ffffff',
+      border: 'none',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      transition: 'background-color 0.2s',
+      whiteSpace: 'nowrap'
+    });
+    
+    sendButton.addEventListener('mouseenter', () => {
+      if (!chatContext.isStreaming) {
+        sendButton.style.backgroundColor = '#5a7be0';
+      }
+    });
+    sendButton.addEventListener('mouseleave', () => {
+      if (!chatContext.isStreaming) {
+        sendButton.style.backgroundColor = '#6b8afd';
+      }
+    });
+    
+    // Handle send action
+    const sendMessage = () => {
+      const question = chatInput.value.trim();
+      if (!question || chatContext.isStreaming) return;
+      
+      // Add user message to history
+      addChatMessage(chatHistory, 'user', question);
+      chatContext.chatHistory.push({ role: 'user', content: question });
+      
+      // Clear input
+      chatInput.value = '';
+      
+      // Show loading state
+      chatContext.isStreaming = true;
+      sendButton.textContent = '...';
+      sendButton.style.backgroundColor = '#9ca3af';
+      sendButton.style.cursor = 'not-allowed';
+      chatInput.disabled = true;
+      
+      // Create placeholder for assistant response
+      const assistantMsgDiv = addChatMessage(chatHistory, 'assistant', '');
+      assistantMsgDiv.dataset.streaming = 'true';
+      
+      // Send to background script
+      chrome.runtime.sendMessage({
+        type: 'CHAT_FOLLOWUP',
+        payload: {
+          question: question,
+          originalText: chatContext.originalText,
+          culturalNuances: chatContext.culturalNuances,
+          chatHistory: chatContext.chatHistory.slice(0, -1) // Exclude the question we just added
+        }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Chat followup error:', chrome.runtime.lastError);
+          finishChatResponse(assistantMsgDiv, 'Error: ' + chrome.runtime.lastError.message, true);
+          resetChatInputState(chatInput, sendButton);
+        }
+      });
+    };
+    
+    sendButton.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+    
+    inputRow.appendChild(chatInput);
+    inputRow.appendChild(sendButton);
+    chatSection.appendChild(inputRow);
+    
+    container.appendChild(chatSection);
+    
+    return { chatHistory, chatInput, sendButton };
+  }
+  
+  // Add a message to the chat history
+  function addChatMessage(historyContainer, role, content) {
+    // Show history container if hidden
+    historyContainer.style.display = 'block';
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `ugt-chat-message ugt-chat-${role}`;
+    Object.assign(msgDiv.style, {
+      marginBottom: '10px',
+      padding: '8px 12px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      lineHeight: '1.5'
+    });
+    
+    if (role === 'user') {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#e8edff',
+        marginLeft: '20px',
+        borderBottomRightRadius: '2px'
+      });
+      msgDiv.innerHTML = `<strong style="color: #4f5d95;">You:</strong> ${escapeHtml(content)}`;
+    } else {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#f3f4f6',
+        marginRight: '20px',
+        borderBottomLeftRadius: '2px'
+      });
+      if (content) {
+        msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+      } else {
+        const providerDisplay = chatContext.providerName || 'AI';
+        msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> <span class="ugt-chat-streaming" style="color: #9ca3af;">Waiting for ${providerDisplay} to respond...</span>`;
+      }
+    }
+    
+    historyContainer.appendChild(msgDiv);
+    historyContainer.scrollTop = historyContainer.scrollHeight;
+    
+    return msgDiv;
+  }
+  
+  // Update streaming message content
+  function updateChatStreamingMessage(msgDiv, content) {
+    if (!msgDiv) return;
+    msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+    const historyContainer = msgDiv.parentElement;
+    if (historyContainer) {
+      historyContainer.scrollTop = historyContainer.scrollHeight;
+    }
+  }
+  
+  // Finish chat response (success or error)
+  function finishChatResponse(msgDiv, content, isError = false) {
+    if (!msgDiv) return;
+    
+    if (isError) {
+      msgDiv.innerHTML = `<strong style="color: #ef4444;">Error:</strong> <span style="color: #ef4444;">${escapeHtml(content)}</span>`;
+    } else {
+      msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+    }
+    
+    delete msgDiv.dataset.streaming;
+    const historyContainer = msgDiv.parentElement;
+    if (historyContainer) {
+      historyContainer.scrollTop = historyContainer.scrollHeight;
+    }
+  }
+  
+  // Reset chat input state after response
+  function resetChatInputState(chatInput, sendButton) {
+    chatContext.isStreaming = false;
+    sendButton.textContent = 'Send';
+    sendButton.style.backgroundColor = '#6b8afd';
+    sendButton.style.cursor = 'pointer';
+    chatInput.disabled = false;
+    chatInput.focus();
+  }
+  
+  // Escape HTML for safe display
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // Helper function to get the content of the innermost/last valid segment for a given ID
@@ -229,6 +477,52 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             previewArea.textContent = currentStreamingText || "No translation data yet...";
           }
           previewArea.scrollTop = previewArea.scrollHeight;
+        }
+      }
+    } else if (msg.type === "CHAT_STREAM_CHUNK") {
+      // Handle chat streaming chunks
+      if (chatContext.activeContainer && chatContext.isStreaming) {
+        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
+        if (streamingMsg) {
+          // Get existing content or empty string
+          const currentContent = streamingMsg.dataset.content || '';
+          const newContent = currentContent + msg.chunk;
+          streamingMsg.dataset.content = newContent;
+          updateChatStreamingMessage(streamingMsg, newContent);
+        }
+      }
+    } else if (msg.type === "CHAT_STREAM_COMPLETE") {
+      // Handle chat stream completion
+      if (chatContext.activeContainer && chatContext.isStreaming) {
+        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
+        const chatInput = chatContext.activeContainer.querySelector('.ugt-chat-input');
+        const sendButton = chatContext.activeContainer.querySelector('.ugt-chat-send');
+        
+        if (streamingMsg) {
+          const finalContent = streamingMsg.dataset.content || msg.content || '';
+          finishChatResponse(streamingMsg, finalContent);
+          
+          // Add to chat history
+          chatContext.chatHistory.push({ role: 'assistant', content: finalContent });
+        }
+        
+        if (chatInput && sendButton) {
+          resetChatInputState(chatInput, sendButton);
+        }
+      }
+    } else if (msg.type === "CHAT_STREAM_ERROR") {
+      // Handle chat stream error
+      if (chatContext.activeContainer) {
+        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
+        const chatInput = chatContext.activeContainer.querySelector('.ugt-chat-input');
+        const sendButton = chatContext.activeContainer.querySelector('.ugt-chat-send');
+        
+        if (streamingMsg) {
+          finishChatResponse(streamingMsg, msg.error || 'An error occurred', true);
+        }
+        
+        if (chatInput && sendButton) {
+          resetChatInputState(chatInput, sendButton);
         }
       }
     }
@@ -430,8 +724,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               const extraTextContainer = document.createElement('div');
               extraTextContainer.className = 'ugt-cultural-nuances';
               
-              // Convert markdown to HTML for proper formatting
-              extraTextContainer.innerHTML = simpleMarkdownToHtml(extraText);
+              // Create a content wrapper for the cultural nuances text
+              const contentWrapper = document.createElement('div');
+              contentWrapper.className = 'ugt-cultural-nuances-content';
+              contentWrapper.innerHTML = simpleMarkdownToHtml(extraText);
+              extraTextContainer.appendChild(contentWrapper);
               
               // Enhanced styling for cultural nuances container
               Object.assign(extraTextContainer.style, {
@@ -458,6 +755,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 document.body.appendChild(extraTextContainer);
                 console.warn("Last translated element had no parent, appended extra text to body.");
               }
+              
+              // Store context and add chat interface
+              chatContext.originalText = fullyAssembledTranslation.trim();
+              // Get provider name from settings (capitalize first letter)
+              const provider = currentTranslationSettings?.provider || 'AI';
+              chatContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+              createChatInterface(extraTextContainer, extraText);
             }
           } else if (streamBuffer.length > 0) {
             // This case means there's extra text, but no translation happened (lastTranslatedElement is null)
