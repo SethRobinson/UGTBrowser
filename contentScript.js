@@ -748,10 +748,27 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 boxSizing: 'border-box'
               });
               
-              if (lastTranslatedElement.parentNode) {
-                lastTranslatedElement.parentNode.insertBefore(extraTextContainer, lastTranslatedElement.nextSibling);
+              // Find the appropriate insertion point - must be OUTSIDE any anchor elements
+              // to prevent link activation when clicking on the cultural nuances area
+              let insertionParent = lastTranslatedElement.parentNode;
+              let insertAfter = lastTranslatedElement;
+              
+              // Walk up the DOM tree to find if we're inside an anchor element
+              let currentElement = lastTranslatedElement;
+              while (currentElement && currentElement !== document.body) {
+                if (currentElement.tagName === 'A') {
+                  // Found an anchor - insert after it instead of inside it
+                  insertionParent = currentElement.parentNode;
+                  insertAfter = currentElement;
+                  break;
+                }
+                currentElement = currentElement.parentNode;
+              }
+              
+              if (insertionParent) {
+                insertionParent.insertBefore(extraTextContainer, insertAfter.nextSibling);
               } else {
-                // Fallback: append to body if lastTranslatedElement somehow lost its parent
+                // Fallback: append to body if somehow lost its parent
                 document.body.appendChild(extraTextContainer);
                 console.warn("Last translated element had no parent, appended extra text to body.");
               }
