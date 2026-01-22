@@ -6,14 +6,13 @@ const CONTEXT_MENU_ID = "ugtbrowser_translate";
 
 // Models that don't support temperature settings
 const noTemperatureModels = [
-  "o3",
-  "o4-mini",
-  "gemini-1.5-pro",
-  "gemini-1.5-flash",
-  "gemini-2.0-flash",
+  "gpt-5-mini",
+  "gpt-5-nano",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
-  "gemini-2.5-pro-preview-05-06"
+  "gemini-2.5-flash-lite",
+  "gemini-3-pro-preview",
+  "gemini-3-flash-preview"
 ];
 
 // Default prompts for different providers
@@ -82,6 +81,65 @@ setInterval(() => {
 // Function to check if a model supports temperature settings
 function supportsTemperature(model) {
   return !noTemperatureModels.includes(model);
+}
+
+// Helper functions for GPT-5.x models
+function isGPT5Model(model) {
+  if (!model) return false;
+  return model.startsWith('gpt-5');
+}
+
+function isGPT52Pro(model) {
+  if (!model) return false;
+  return model.toLowerCase() === 'gpt-5.2-pro';
+}
+
+function supportsNoneReasoningEffort(model) {
+  // GPT-5.1 and GPT-5.2 (but NOT GPT-5.2 Pro) support 'none'
+  // GPT-5.2 Pro only supports 'medium', 'high', 'xhigh'
+  if (!model) return false;
+  const lowerModel = model.toLowerCase();
+  if (lowerModel === 'gpt-5.2-pro') return false; // GPT-5.2 Pro doesn't support 'none'
+  return lowerModel.startsWith('gpt-5.1') || lowerModel.startsWith('gpt-5.2');
+}
+
+function getReasoningEffort(model, thinkingEnabled) {
+  if (!model) return null;
+  const lowerModel = model.toLowerCase();
+  
+  if (!isGPT5Model(model)) {
+    return null; // Not a GPT-5 model, doesn't support reasoning_effort
+  }
+  
+  // GPT-5.2 Pro has different supported values: 'medium', 'high', 'xhigh' (no 'none' or 'low')
+  if (lowerModel === 'gpt-5.2-pro') {
+    if (thinkingEnabled) {
+      return "high"; // Use 'high' when thinking is enabled
+    } else {
+      return "medium"; // Use 'medium' (lowest) when thinking is disabled
+    }
+  }
+  
+  if (thinkingEnabled) {
+    return "medium";
+  } else {
+    // When disabled: 'none' for GPT-5.1/5.2 (non-Pro), 'low' for GPT-5/5-mini/5-nano
+    // GPT-5 Nano and Mini need 'low' explicitly set to avoid default thinking behavior
+    return supportsNoneReasoningEffort(model) ? "none" : "low";
+  }
+}
+
+// Helper functions for Gemini models
+function isGemini3Model(model) {
+  if (!model) return false;
+  return model.toLowerCase().startsWith('gemini-3');
+}
+
+function supportsGeminiThinking(model) {
+  // Gemini 2.5 and 3.x models support thinking
+  if (!model) return false;
+  const lowerModel = model.toLowerCase();
+  return lowerModel.startsWith('gemini-2.5') || lowerModel.startsWith('gemini-3');
 }
 
 function buildTranslateTitle(settings) {
@@ -379,13 +437,13 @@ async function fetchTranslationStreaming(promptText, settings, port) {
   try {
     switch (provider) {
       case "openai":
-        await fetchFromOpenAIStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug);
+        await fetchFromOpenAIStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings);
         break;
       case "anthropic":
         await fetchFromAnthropicStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug);
         break;
       case "gemini":
-        await fetchFromGeminiStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug);
+        await fetchFromGeminiStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings);
         break;
       default:
         throw new Error(`Unknown provider: ${provider}`);
@@ -503,19 +561,50 @@ async function fetchFromOpenAI(prompt, model, apiKey) {
   return data.choices[0].message.content;
 }
 
-async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback) {
+async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback, settings = {}) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
-  console.log("Starting OpenAI streaming request with new tagged format handling");
+  const modelToUse = model || "gpt-4o";
+  const thinkingEnabled = settings.openaiThinkingEnabled === true;
+  const useResponsesApi = isGPT52Pro(modelToUse);
+  const reasoningEffort = getReasoningEffort(modelToUse, thinkingEnabled);
   
-  const endpoint = "https://api.openai.com/v1/chat/completions";
-  const requestBody = {
-    model: model || "gpt-4o",
-    messages: [{ role: "user", content: prompt }],
-    stream: true
-  };
-  if (supportsTemperature(model)) {
-    requestBody.temperature = 0.1; // Or get from settings if we add this option
+  console.log(`Starting OpenAI streaming request: model=${modelToUse}, useResponsesApi=${useResponsesApi}, thinkingEnabled=${thinkingEnabled}, reasoningEffort=${reasoningEffort}`);
+  
+  let endpoint, requestBody;
+  
+  if (useResponsesApi) {
+    // GPT-5.2 Pro uses the Responses API
+    endpoint = "https://api.openai.com/v1/responses";
+    
+    const reasoningEffort = getReasoningEffort(modelToUse, thinkingEnabled);
+    requestBody = {
+      model: modelToUse,
+      input: prompt,
+      max_output_tokens: 16384
+    };
+    
+    if (reasoningEffort) {
+      requestBody.reasoning = { effort: reasoningEffort };
+    }
+  } else {
+    // Standard Chat Completions API
+    endpoint = "https://api.openai.com/v1/chat/completions";
+    requestBody = {
+      model: modelToUse,
+      messages: [{ role: "user", content: prompt }],
+      stream: true
+    };
+    
+    if (supportsTemperature(modelToUse)) {
+      requestBody.temperature = 0.1;
+    }
+    
+    // Add reasoning_effort for GPT-5.x models (except GPT-5.2 Pro which uses Responses API)
+    const reasoningEffort = getReasoningEffort(modelToUse, thinkingEnabled);
+    if (reasoningEffort) {
+      requestBody.reasoning_effort = reasoningEffort;
+    }
   }
   
   const response = await fetch(endpoint, {
@@ -532,53 +621,97 @@ async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallb
     throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
   }
   
-  console.log("OpenAI stream connected, reading data (tagged format)");
-  
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-  let chunkCount = 0;
-  
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        console.log("OpenAI stream complete after", chunkCount, "chunks");
-        break;
-      }
-      
-      const chunk = decoder.decode(value);
-      buffer += chunk;
-      
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || ""; 
-      
-      for (const line of lines) {
-        if (line.startsWith("data: ") && line !== "data: [DONE]") {
-          try {
-            const data = JSON.parse(line.substring(6));
-            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-              const newContent = data.choices[0].delta.content;
-              // Send raw delta content directly to content script
-              port.postMessage({ 
-                type: "STREAM_CHUNK", 
-                chunk: newContent,
-              });
-              if (updateCallback) updateCallback(newContent);
-              chunkCount++;
+  if (useResponsesApi) {
+    // Responses API returns a complete response (non-streaming)
+    console.log("OpenAI Responses API: parsing complete response");
+    const data = await response.json();
+    
+    try {
+      // Parse Responses API response format
+      let textContent = "";
+      if (data.output && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.type === "message" && item.content && Array.isArray(item.content)) {
+            for (const contentItem of item.content) {
+              if (contentItem.type === "output_text" && contentItem.text) {
+                textContent += contentItem.text;
+              }
             }
-          } catch (e) {
-            console.error("Error parsing OpenAI stream line:", e, "Line:", line);
           }
-        } else if (line === "data: [DONE]") {
-          console.log("OpenAI stream [DONE] marker received");
         }
       }
+      
+      // Fallback: try direct output_text property
+      if (!textContent && data.output_text) {
+        textContent = data.output_text;
+      }
+      
+      if (textContent) {
+        // Send the complete content as chunks to maintain compatibility with streaming UI
+        port.postMessage({ 
+          type: "STREAM_CHUNK", 
+          chunk: textContent,
+        });
+        if (updateCallback) updateCallback(textContent);
+        console.log("OpenAI Responses API: sent complete response");
+      } else {
+        console.error("OpenAI Responses API: could not extract text from response", data);
+        throw new Error("Could not extract text from Responses API response");
+      }
+    } catch (e) {
+      console.error("Error parsing Responses API response:", e);
+      throw new Error(`Error parsing Responses API response: ${e.message}`);
     }
+  } else {
+    // Standard Chat Completions API streaming
+    console.log("OpenAI stream connected, reading data (tagged format)");
     
-    console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
-  } finally {
-    reader.releaseLock();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let chunkCount = 0;
+    
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log("OpenAI stream complete after", chunkCount, "chunks");
+          break;
+        }
+        
+        const chunk = decoder.decode(value);
+        buffer += chunk;
+        
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; 
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+                const newContent = data.choices[0].delta.content;
+                // Send raw delta content directly to content script
+                port.postMessage({ 
+                  type: "STREAM_CHUNK", 
+                  chunk: newContent,
+                });
+                if (updateCallback) updateCallback(newContent);
+                chunkCount++;
+              }
+            } catch (e) {
+              console.error("Error parsing OpenAI stream line:", e, "Line:", line);
+            }
+          } else if (line === "data: [DONE]") {
+            console.log("OpenAI stream [DONE] marker received");
+          }
+        }
+      }
+      
+      console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
@@ -588,15 +721,17 @@ async function fetchFromAnthropic(prompt, model, apiKey) {
   // Determine the appropriate max_tokens based on the model
   let maxTokens = 4096; // Default for most Claude models
   
-  // For Claude 3.7 Sonnet, use the higher limit
-  if (model && model.includes("claude-3-7-sonnet")) {
+  // For Claude 4.5 models, use higher limits
+  if (model && (model.includes("claude-sonnet-4-5") || model.includes("claude-opus-4-5") || model.includes("claude-haiku-4-5"))) {
+    maxTokens = 8192; // Claude 4.5 models support up to 8192 tokens
+  } else if (model && model.includes("claude-3-7-sonnet")) {
     maxTokens = 64000;
   } else if (model && (model.includes("claude-3-5-sonnet") || model.includes("claude-3-5-haiku"))) {
     maxTokens = 8192;
   }
   
   // Make sure the model name matches one of the valid formats Anthropic accepts
-  const modelToUse = model || "claude-3-opus-latest";
+  const modelToUse = model || "claude-sonnet-4-5";
   console.log("Using Anthropic model:", modelToUse);
   
   const endpoint = "https://api.anthropic.com/v1/messages";
@@ -642,10 +777,16 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
   console.log("Starting Anthropic streaming request with new tagged format handling");
   
   let maxTokens = 4096;
-  if (model && model.includes("claude-3-7-sonnet")) maxTokens = 64000;
-  else if (model && (model.includes("claude-3-5-sonnet") || model.includes("claude-3-5-haiku"))) maxTokens = 8192;
+  // For Claude 4.5 models, use higher limits
+  if (model && (model.includes("claude-sonnet-4-5") || model.includes("claude-opus-4-5") || model.includes("claude-haiku-4-5"))) {
+    maxTokens = 8192;
+  } else if (model && model.includes("claude-3-7-sonnet")) {
+    maxTokens = 64000;
+  } else if (model && (model.includes("claude-3-5-sonnet") || model.includes("claude-3-5-haiku"))) {
+    maxTokens = 8192;
+  }
   
-  const modelToUse = model || "claude-3-opus-latest"; // Ensure this is updated with Anthropic's latest recommendations
+  const modelToUse = model || "claude-sonnet-4-5"; // Ensure this is updated with Anthropic's latest recommendations
   console.log("Using Anthropic model:", modelToUse);
   
   const endpoint = "https://api.anthropic.com/v1/messages";
@@ -806,12 +947,13 @@ async function asyncWithTimeout(asyncFunction, timeoutMs) {
   });
 }
 
-async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallback) {
+async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallback, settings = {}) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   console.log("Starting Gemini streaming request with new tagged format handling (revised parsing)");
   let modelId = model || "gemini-1.5-pro";
-  console.log(`Using Gemini model: ${modelId}`);
+  const thinkingEnabled = settings.geminiThinkingEnabled === true;
+  console.log(`Using Gemini model: ${modelId}, thinkingEnabled: ${thinkingEnabled}`);
   
   const heartbeatInterval = setInterval(() => {
     try {
@@ -826,9 +968,30 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
   
   try {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?key=${apiKey}`;
+    const generationConfig = { maxOutputTokens: 16384 };
+    
+    // Add temperature if supported
+    if (supportsTemperature(modelId)) {
+      generationConfig.temperature = 0.1;
+    }
+    
+    // Add thinkingConfig for models that support it
+    if (supportsGeminiThinking(modelId)) {
+      const thinkingConfig = {};
+      if (isGemini3Model(modelId)) {
+        // Gemini 3.x uses thinkingLevel: "low" or "high"
+        thinkingConfig.thinkingLevel = thinkingEnabled ? "high" : "low";
+      } else {
+        // Gemini 2.5 uses thinkingBudget: 0 (disabled) or -1 (dynamic/enabled)
+        thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 0;
+      }
+      generationConfig.thinkingConfig = thinkingConfig;
+      console.log(`Gemini thinking config: model=${modelId}, enabled=${thinkingEnabled}, config=`, thinkingConfig);
+    }
+    
     const requestBody = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 16384 },
+      generationConfig: generationConfig,
       safetySettings: [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
         { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -836,9 +999,6 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
         { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
       ]
     };
-    if (supportsTemperature(model)) {
-      requestBody.generationConfig.temperature = 0.1;
-    }
     
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`Request to Gemini timed out after 20 minutes`)), 1200000);
