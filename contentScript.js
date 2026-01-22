@@ -630,6 +630,37 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return asianLanguagesWithoutSpaces.some(l => lang.includes(l));
   }
 
+  // Helper function to check if two elements are in the same inline flow
+  // Returns false if there's a line break, BR tag, or block element between them
+  function areInSameInlineFlow(prev, current) {
+    if (!prev || !current) return false;
+    
+    // If they don't have the same parent, they're likely not in the same inline flow
+    if (prev.parentNode !== current.parentNode) {
+      return false;
+    }
+    
+    // Check for block elements, BR, or newlines between them
+    let node = prev.nextSibling;
+    while (node && node !== current) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tagName = node.tagName.toUpperCase();
+        if (tagName === 'BR') return false;
+        // Check for block-level elements
+        const blockTags = ['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'TR', 'TD', 'TH', 'BLOCKQUOTE', 'PRE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE'];
+        if (blockTags.includes(tagName)) return false;
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        // If there's a text node with newlines, they're not in the same inline flow
+        if (/[\n\r]/.test(node.nodeValue)) {
+          return false;
+        }
+      }
+      node = node.nextSibling;
+    }
+    
+    return true;
+  }
+
   document.addEventListener("selectionchange", () => {
     const sel = document.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -890,7 +921,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                             shouldAddSpace = false;
                         }
 
-                        if (shouldAddSpace) {
+                        // Only add space if elements are in the same inline flow (no line breaks between them)
+                        if (shouldAddSpace && areInSameInlineFlow(lastTranslatedElement, targetSpan)) {
                             finalTranslatedContent = " " + finalTranslatedContent;
                             //console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
@@ -990,7 +1022,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                             shouldAddSpace = false;
                         }
 
-                        if (shouldAddSpace) {
+                        // Only add space if elements are in the same inline flow (no line breaks between them)
+                        if (shouldAddSpace && areInSameInlineFlow(lastTranslatedElement, targetSpan)) {
                             finalTranslatedContent = " " + finalTranslatedContent;
                             //console.log("[UGT Space Debug] Space ADDED. New finalTranslatedContent:", finalTranslatedContent);
                         }
