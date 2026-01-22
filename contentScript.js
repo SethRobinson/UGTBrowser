@@ -26,6 +26,64 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
 
+  // Helper function to convert simple markdown to HTML for cultural nuances display
+  function simpleMarkdownToHtml(text) {
+    if (!text) return '';
+    
+    // Escape HTML special characters first (for safety)
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    
+    // Convert **bold** to <strong>
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    
+    // Convert _italic_ or inline *italic* to <em> (simpler pattern to avoid matching bullets)
+    html = html.replace(/\b_([^_]+)_\b/g, '<em>$1</em>');
+    html = html.replace(/(\s)\*([^*\n]+)\*(\s|[.,;:!?])/g, '$1<em>$2</em>$3');
+    
+    // Split into lines for processing
+    const lines = html.split('\n');
+    const processedLines = [];
+    let inList = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i].trim();
+      
+      // Check for bullet points (*, -, •)
+      const bulletMatch = line.match(/^[\*\-•]\s+(.+)$/);
+      
+      if (bulletMatch) {
+        if (!inList) {
+          processedLines.push('<ul style="margin: 8px 0 8px 20px; padding-left: 0;">');
+          inList = true;
+        }
+        processedLines.push(`<li style="margin: 4px 0;">${bulletMatch[1]}</li>`);
+      } else {
+        if (inList) {
+          processedLines.push('</ul>');
+          inList = false;
+        }
+        
+        if (line === '') {
+          // Empty line - add spacing
+          processedLines.push('<div style="height: 8px;"></div>');
+        } else {
+          // Regular paragraph
+          processedLines.push(`<p style="margin: 6px 0;">${line}</p>`);
+        }
+      }
+    }
+    
+    // Close any open list
+    if (inList) {
+      processedLines.push('</ul>');
+    }
+    
+    return processedLines.join('');
+  }
+
   // Helper function to get the content of the innermost/last valid segment for a given ID
   function getInnermostTranslatedSegment(originalId, contentBlock, segmentRegex) {
     let lastMatchingContentForId = null;
@@ -370,15 +428,28 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             if (extraText) {
               //console.log("Appending extra text after last translation:", extraText);
               const extraTextContainer = document.createElement('div');
-              extraTextContainer.textContent = extraText; 
-              // Basic styling for the appended text container
-              extraTextContainer.style.marginLeft = '8px'; 
-              extraTextContainer.style.padding = '5px';
-              extraTextContainer.style.border = '1px dashed #ccc';
-              extraTextContainer.style.marginTop = '5px';
-              extraTextContainer.style.backgroundColor = '#f9f9f9';
-              extraTextContainer.style.color = '#222222'; // Ensure text is dark and readable
-              extraTextContainer.style.fontWeight = '400'; // Slightly bolder for better readability
+              extraTextContainer.className = 'ugt-cultural-nuances';
+              
+              // Convert markdown to HTML for proper formatting
+              extraTextContainer.innerHTML = simpleMarkdownToHtml(extraText);
+              
+              // Enhanced styling for cultural nuances container
+              Object.assign(extraTextContainer.style, {
+                marginLeft: '0',
+                marginTop: '12px',
+                marginBottom: '8px',
+                padding: '14px 18px',
+                borderLeft: '4px solid #6b8afd',
+                backgroundColor: '#f8f9ff',
+                borderRadius: '0 8px 8px 0',
+                boxShadow: '0 2px 8px rgba(107, 138, 253, 0.12)',
+                color: '#2d3748',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                maxWidth: '100%',
+                boxSizing: 'border-box'
+              });
               
               if (lastTranslatedElement.parentNode) {
                 lastTranslatedElement.parentNode.insertBefore(extraTextContainer, lastTranslatedElement.nextSibling);
