@@ -458,7 +458,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   } else if (message.type === "CHAT_FOLLOWUP") {
     // Handle follow-up chat questions about cultural nuances
-    const { question, originalText, culturalNuances, chatHistory } = message.payload;
+    const { sessionId, question, originalText, culturalNuances, chatHistory } = message.payload;
+    
+    // Validate sessionId is present
+    if (!sessionId) {
+      console.error("CHAT_FOLLOWUP received without sessionId");
+      chrome.tabs.sendMessage(sender.tab.id, { 
+        type: "CHAT_STREAM_ERROR", 
+        sessionId: null,
+        error: "Internal error: No session ID provided"
+      }, { frameId: sender.frameId });
+      sendResponse({ status: "error", error: "No session ID" });
+      return true;
+    }
     
     // Get current settings to use the same provider/model
     chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
@@ -479,6 +491,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!apiKey) {
         chrome.tabs.sendMessage(sender.tab.id, { 
           type: "CHAT_STREAM_ERROR", 
+          sessionId: sessionId,
           error: `No API key configured for ${provider}. Please check your settings.`
         }, { frameId: sender.frameId });
         return;
@@ -488,24 +501,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const chatPrompt = buildChatPrompt(question, originalText, culturalNuances, chatHistory);
       
       try {
-        // Use streaming for chat responses
-        await fetchChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings);
+        // Use streaming for chat responses - pass sessionId for routing
+        await fetchChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId);
         
-        // Send completion message
+        // Send completion message with sessionId
         chrome.tabs.sendMessage(sender.tab.id, { 
-          type: "CHAT_STREAM_COMPLETE"
+          type: "CHAT_STREAM_COMPLETE",
+          sessionId: sessionId
         }, { frameId: sender.frameId });
         
       } catch (error) {
         console.error("Chat followup error:", error);
         chrome.tabs.sendMessage(sender.tab.id, { 
           type: "CHAT_STREAM_ERROR", 
+          sessionId: sessionId,
           error: error.message || String(error)
         }, { frameId: sender.frameId });
       }
     });
     
-    sendResponse({ status: "chat_started" });
+    sendResponse({ status: "chat_started", sessionId: sessionId });
     return true;
   }
 });
@@ -543,12 +558,13 @@ Please provide a helpful, concise answer. If the question relates to the transla
 }
 
 // Streaming chat function for follow-up questions
-async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}) {
-  console.log(`Starting chat streaming for provider: ${provider}`);
+async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null) {
+  console.log(`Starting chat streaming for provider: ${provider}, sessionId: ${sessionId}`);
   
   const sendChunk = (chunk) => {
     chrome.tabs.sendMessage(tabId, { 
       type: "CHAT_STREAM_CHUNK", 
+      sessionId: sessionId,
       chunk: chunk 
     }, { frameId: frameId });
   };

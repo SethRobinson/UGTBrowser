@@ -27,15 +27,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let ttsOverlayDiv = null;
   let ttsAudioElement = null;
 
-  // Chat context for follow-up questions
-  let chatContext = {
-    originalText: '',
-    culturalNuances: '',
-    chatHistory: [], // Array of {role: 'user'|'assistant', content: string}
-    activeContainer: null, // Reference to the cultural nuances container with chat
-    isStreaming: false,
-    providerName: '' // Name of the active LLM provider
-  };
+  // Chat context for follow-up questions - now stored per-session to support multiple concurrent chats
+  const chatSessions = new Map(); // Map of sessionId -> { originalText, culturalNuances, chatHistory, container, isStreaming, providerName }
+  
+  // Generate a unique session ID for chat
+  function generateChatSessionId() {
+    return 'chat_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+  }
 
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
@@ -100,10 +98,22 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Function to create the chat interface for follow-up questions
   function createChatInterface(container, culturalNuancesText) {
-    // Store context
-    chatContext.culturalNuances = culturalNuancesText;
-    chatContext.activeContainer = container;
-    chatContext.chatHistory = [];
+    // Generate a unique session ID for this chat interface
+    const sessionId = generateChatSessionId();
+    
+    // Store session context
+    const sessionContext = {
+      originalText: '', // Will be set later when translation completes
+      culturalNuances: culturalNuancesText,
+      chatHistory: [],
+      container: container,
+      isStreaming: false,
+      providerName: ''
+    };
+    chatSessions.set(sessionId, sessionContext);
+    
+    // Store session ID on the container for lookup
+    container.dataset.chatSessionId = sessionId;
     
     // Create chat section wrapper
     const chatSection = document.createElement('div');
@@ -183,12 +193,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     });
     
     sendButton.addEventListener('mouseenter', () => {
-      if (!chatContext.isStreaming) {
+      const currentSession = chatSessions.get(sessionId);
+      if (!currentSession?.isStreaming) {
         sendButton.style.backgroundColor = '#5a7be0';
       }
     });
     sendButton.addEventListener('mouseleave', () => {
-      if (!chatContext.isStreaming) {
+      const currentSession = chatSessions.get(sessionId);
+      if (!currentSession?.isStreaming) {
         sendButton.style.backgroundColor = '#6b8afd';
       }
     });
@@ -196,40 +208,45 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // Handle send action
     const sendMessage = () => {
       const question = chatInput.value.trim();
-      if (!question || chatContext.isStreaming) return;
+      
+      // Get the session context for this chat interface
+      const currentSession = chatSessions.get(sessionId);
+      if (!question || !currentSession || currentSession.isStreaming) return;
       
       // Add user message to history
-      addChatMessage(chatHistory, 'user', question);
-      chatContext.chatHistory.push({ role: 'user', content: question });
+      addChatMessage(chatHistory, 'user', question, sessionId);
+      currentSession.chatHistory.push({ role: 'user', content: question });
       
       // Clear input
       chatInput.value = '';
       
       // Show loading state
-      chatContext.isStreaming = true;
+      currentSession.isStreaming = true;
       sendButton.textContent = '...';
       sendButton.style.backgroundColor = '#9ca3af';
       sendButton.style.cursor = 'not-allowed';
       chatInput.disabled = true;
       
       // Create placeholder for assistant response
-      const assistantMsgDiv = addChatMessage(chatHistory, 'assistant', '');
+      const assistantMsgDiv = addChatMessage(chatHistory, 'assistant', '', sessionId);
       assistantMsgDiv.dataset.streaming = 'true';
+      assistantMsgDiv.dataset.sessionId = sessionId; // Tag with session ID for routing
       
-      // Send to background script
+      // Send to background script with session ID
       chrome.runtime.sendMessage({
         type: 'CHAT_FOLLOWUP',
         payload: {
+          sessionId: sessionId, // Include session ID for response routing
           question: question,
-          originalText: chatContext.originalText,
-          culturalNuances: chatContext.culturalNuances,
-          chatHistory: chatContext.chatHistory.slice(0, -1) // Exclude the question we just added
+          originalText: currentSession.originalText,
+          culturalNuances: currentSession.culturalNuances,
+          chatHistory: currentSession.chatHistory.slice(0, -1) // Exclude the question we just added
         }
       }, (response) => {
         if (chrome.runtime.lastError) {
           console.error('Chat followup error:', chrome.runtime.lastError);
-          finishChatResponse(assistantMsgDiv, 'Error: ' + chrome.runtime.lastError.message, true);
-          resetChatInputState(chatInput, sendButton);
+          finishChatResponse(assistantMsgDiv, 'Error: ' + chrome.runtime.lastError.message, true, sessionId);
+          resetChatInputState(chatInput, sendButton, sessionId);
         }
       });
     };
@@ -251,7 +268,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
   
   // Add a message to the chat history
-  function addChatMessage(historyContainer, role, content) {
+  function addChatMessage(historyContainer, role, content, sessionId = null) {
     // Show history container if hidden
     historyContainer.style.display = 'block';
     
@@ -281,7 +298,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       if (content) {
         msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
       } else {
-        const providerDisplay = chatContext.providerName || 'AI';
+        // Get provider name from session context if available
+        const sessionContext = sessionId ? chatSessions.get(sessionId) : null;
+        const providerDisplay = sessionContext?.providerName || 'AI';
         msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> <span class="ugt-chat-streaming" style="color: #9ca3af;">Waiting for ${providerDisplay} to respond...</span>`;
       }
     }
@@ -303,7 +322,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
   
   // Finish chat response (success or error)
-  function finishChatResponse(msgDiv, content, isError = false) {
+  function finishChatResponse(msgDiv, content, isError = false, sessionId = null) {
     if (!msgDiv) return;
     
     if (isError) {
@@ -313,6 +332,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
     
     delete msgDiv.dataset.streaming;
+    delete msgDiv.dataset.sessionId;
     const historyContainer = msgDiv.parentElement;
     if (historyContainer) {
       historyContainer.scrollTop = historyContainer.scrollHeight;
@@ -320,8 +340,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
   
   // Reset chat input state after response
-  function resetChatInputState(chatInput, sendButton) {
-    chatContext.isStreaming = false;
+  function resetChatInputState(chatInput, sendButton, sessionId = null) {
+    // Reset streaming state in session context
+    if (sessionId) {
+      const sessionContext = chatSessions.get(sessionId);
+      if (sessionContext) {
+        sessionContext.isStreaming = false;
+      }
+    }
     sendButton.textContent = 'Send';
     sendButton.style.backgroundColor = '#6b8afd';
     sendButton.style.cursor = 'pointer';
@@ -484,9 +510,17 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
       }
     } else if (msg.type === "CHAT_STREAM_CHUNK") {
-      // Handle chat streaming chunks
-      if (chatContext.activeContainer && chatContext.isStreaming) {
-        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
+      // Handle chat streaming chunks - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('CHAT_STREAM_CHUNK received without sessionId');
+        return;
+      }
+      
+      const sessionContext = chatSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming && sessionContext.container) {
+        // Find the streaming message element by both streaming status AND session ID
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
         if (streamingMsg) {
           // Get existing content or empty string
           const currentContent = streamingMsg.dataset.content || '';
@@ -496,37 +530,51 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
       }
     } else if (msg.type === "CHAT_STREAM_COMPLETE") {
-      // Handle chat stream completion
-      if (chatContext.activeContainer && chatContext.isStreaming) {
-        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
-        const chatInput = chatContext.activeContainer.querySelector('.ugt-chat-input');
-        const sendButton = chatContext.activeContainer.querySelector('.ugt-chat-send');
+      // Handle chat stream completion - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('CHAT_STREAM_COMPLETE received without sessionId');
+        return;
+      }
+      
+      const sessionContext = chatSessions.get(sessionId);
+      if (sessionContext && sessionContext.container) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-chat-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-chat-send');
         
         if (streamingMsg) {
           const finalContent = streamingMsg.dataset.content || msg.content || '';
-          finishChatResponse(streamingMsg, finalContent);
+          finishChatResponse(streamingMsg, finalContent, false, sessionId);
           
-          // Add to chat history
-          chatContext.chatHistory.push({ role: 'assistant', content: finalContent });
+          // Add to chat history in session context
+          sessionContext.chatHistory.push({ role: 'assistant', content: finalContent });
         }
         
         if (chatInput && sendButton) {
-          resetChatInputState(chatInput, sendButton);
+          resetChatInputState(chatInput, sendButton, sessionId);
         }
       }
     } else if (msg.type === "CHAT_STREAM_ERROR") {
-      // Handle chat stream error
-      if (chatContext.activeContainer) {
-        const streamingMsg = chatContext.activeContainer.querySelector('.ugt-chat-message[data-streaming="true"]');
-        const chatInput = chatContext.activeContainer.querySelector('.ugt-chat-input');
-        const sendButton = chatContext.activeContainer.querySelector('.ugt-chat-send');
+      // Handle chat stream error - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('CHAT_STREAM_ERROR received without sessionId');
+        return;
+      }
+      
+      const sessionContext = chatSessions.get(sessionId);
+      if (sessionContext && sessionContext.container) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-chat-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-chat-send');
         
         if (streamingMsg) {
-          finishChatResponse(streamingMsg, msg.error || 'An error occurred', true);
+          finishChatResponse(streamingMsg, msg.error || 'An error occurred', true, sessionId);
         }
         
         if (chatInput && sendButton) {
-          resetChatInputState(chatInput, sendButton);
+          resetChatInputState(chatInput, sendButton, sessionId);
         }
       }
     } else if (msg.type === "UGT_SHOW_TTS_OVERLAY" && window.self === window.top) {
@@ -604,8 +652,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                     const firstCharOfCurrent = finalTranslatedContent.charAt(0);
 
                     if (lastCharOfPrev !== ' ' && firstCharOfCurrent !== ' ') {
-                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '”', '’', '"', '\'', '%', '>'];
-                        const noSpaceAfterThese = ['(', '[', '{', '“', '‘', '"', '\'', '<'];
+                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '"', '\u2019', '"', '\'', '%', '>'];
+                        const noSpaceAfterThese = ['(', '[', '{', '"', '\u2018', '"', '\'', '<'];
                         
                         let shouldAddSpace = true;
                         if (noSpaceBeforeThese.includes(firstCharOfCurrent)) {
@@ -703,8 +751,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                     const firstCharOfCurrent = finalTranslatedContent.charAt(0);
 
                     if (lastCharOfPrev !== ' ' && firstCharOfCurrent !== ' ') {
-                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '”', '’', '"', '\'', '%', '>'];
-                        const noSpaceAfterThese = ['(', '[', '{', '“', '‘', '"', '\'', '<'];
+                        const noSpaceBeforeThese = ['.', ',', ';', ':', '?', '!', ')', ']', '}', '"', '\u2019', '"', '\'', '%', '>'];
+                        const noSpaceAfterThese = ['(', '[', '{', '"', '\u2018', '"', '\'', '<'];
                         
                         let shouldAddSpace = true;
                         if (noSpaceBeforeThese.includes(firstCharOfCurrent)) {
@@ -785,12 +833,20 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 console.warn("Last translated element had no parent, appended extra text to body.");
               }
               
-              // Store context and add chat interface
-              chatContext.originalText = fullyAssembledTranslation.trim();
-              // Get provider name from settings (capitalize first letter)
-              const provider = currentTranslationSettings?.provider || 'AI';
-              chatContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
-              createChatInterface(extraTextContainer, extraText);
+              // Create chat interface (session context is created inside)
+              const chatElements = createChatInterface(extraTextContainer, extraText);
+              
+              // Update the session context with translation info
+              const chatSessionId = extraTextContainer.dataset.chatSessionId;
+              if (chatSessionId) {
+                const sessionContext = chatSessions.get(chatSessionId);
+                if (sessionContext) {
+                  sessionContext.originalText = fullyAssembledTranslation.trim();
+                  // Get provider name from settings (capitalize first letter)
+                  const provider = currentTranslationSettings?.provider || 'AI';
+                  sessionContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+                }
+              }
             }
           } else if (streamBuffer.length > 0) {
             // This case means there's extra text, but no translation happened (lastTranslatedElement is null)
@@ -841,16 +897,17 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             }
           }
 
-          // Disconnect the port now that processing is complete
-          if (streamingPort) {
-            try {
-              console.log("Translation complete, disconnecting streaming port from content script.");
-              streamingPort.disconnect();
-              streamingPort = null; // Set to null immediately to prevent race conditions
-            } catch (e) {
-              console.warn("Error disconnecting port on stream complete:", e);
-              streamingPort = null; // Also set to null if there was an error
-            }
+          // Disconnect THIS port (using closure variable, not global streamingPort)
+          // This prevents disconnecting a different translation's port if multiple are running
+          try {
+            console.log("Translation complete, disconnecting this port from content script.");
+            port.disconnect();
+          } catch (e) {
+            console.warn("Error disconnecting port on stream complete:", e);
+          }
+          // Only clear global streamingPort if it's still pointing to this port
+          if (streamingPort === port) {
+            streamingPort = null;
           }
 
         } else if (msg.type === "STREAM_ERROR") {
@@ -868,17 +925,19 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           // Consider reverting placeholders to original text if possible/stored
           streamBuffer = "";
           hideOverlay(); // Or only hide parts of it, leaving error message
-          if (streamingPort) {
-            try { streamingPort.disconnect(); } catch (e) {}
+          // Disconnect THIS port (using closure variable, not global streamingPort)
+          try { port.disconnect(); } catch (e) {}
+          if (streamingPort === port) {
             streamingPort = null;
           }
 
         } else if (msg.type === "HEARTBEAT_CONTENT" || msg.type === "HEARTBEAT_RESPONSE" || msg.type === "STATUS_CHECK") {
           // Handle other message types as before or log them
           console.log("Received message:", msg.type, msg);
-          if (msg.type === "STATUS_CHECK" && streamingPort) {
+          if (msg.type === "STATUS_CHECK") {
             try {
-              streamingPort.postMessage({ type: "STATUS_RESPONSE", status: "active", timestamp: Date.now() });
+              // Use the closure's port, not the global streamingPort
+              port.postMessage({ type: "STATUS_RESPONSE", status: "active", timestamp: Date.now() });
             } catch (e) { console.error("Error responding to STATUS_CHECK:", e); }
           }
         }
