@@ -367,4 +367,69 @@ ol {
 
 .modal-body p {
   margin-bottom: 10px;
+}
+
+/* TTS Settings Section */
+#ttsSettingsSection {
+  border-left: 4px solid #667eea;
+}
+
+#ttsSettingsSection h2 {
+  color: #667eea;
+}
+
+#elevenlabsApiKeyHelp {
+  display: block;
+  font-size: 0.85em;
+  margin-top: 6px;
+  color: #555;
+}
+
+.tts-test-group {
+  background-color: var(--light-gray);
+  padding: 15px;
+  border-radius: 6px;
+  margin-top: 10px;
+}
+
+.tts-test-button-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.tts-test-status {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tts-test-error {
+  color: #dc3545;
+}
+
+.tts-test-success {
+  color: var(--success-color);
+}
+
+.tts-test-loading {
+  color: #6c757d;
+}
+
+.tts-test-loading::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 8px;
+  border: 2px solid #6c757d;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: tts-spin 1s linear infinite;
+}
+
+@keyframes tts-spin {
+  to {
+    transform: rotate(360deg);
+  }
 } 

@@ -179,6 +179,60 @@
           </div>
         </div>
 
+        <!-- Text-to-Speech Settings Section -->
+        <div class="settings-section" id="ttsSettingsSection">
+          <h2>Text-to-Speech (ElevenLabs)</h2>
+          
+          <div class="form-group" id="elevenlabsKeyWrapper">
+            <label for="elevenlabsApiKey">ElevenLabs API Key:</label>
+            <input type="password" id="elevenlabsApiKey" class="form-control" placeholder="Enter ElevenLabs API key" />
+            <div class="api-key-help" id="elevenlabsApiKeyHelp">
+              Get your ElevenLabs API key from <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io/app/settings/api-keys</a>.
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="elevenlabsVoice">Voice:</label>
+            <select id="elevenlabsVoice" class="form-control">
+              <option value="21m00Tcm4TlvDq8ikWAM">Rachel (female, narrative)</option>
+              <option value="29vD33N1CtxCmqQRPOHJ">Drew (male, news)</option>
+              <option value="2EiwWnXFnvU5JabPnv8n">Clyde (male, war veteran)</option>
+              <option value="5Q0t7uMcjvnagumLfvZi">Paul (male, news)</option>
+              <option value="AZnzlk1XvdvUeBnXmlld">Domi (female, strong)</option>
+              <option value="CYw3kZ02Hs0563khs1Fj">Dave (male, conversational)</option>
+              <option value="D38z5RcWu1voky8WS1ja">Fin (male, sailor)</option>
+              <option value="EXAVITQu4vr4xnSDxMaL">Sarah (female, soft news)</option>
+              <option value="ErXwobaYiN019PkySvjV">Antoni (male, well-rounded)</option>
+              <option value="GBv7mTt0atIp3Br8iCZE">Thomas (male, calm)</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="elevenlabsCustomVoiceId">Custom Voice ID (optional):</label>
+            <input type="text" id="elevenlabsCustomVoiceId" class="form-control" placeholder="Enter custom voice ID to override selection above" />
+            <div class="help-text">If you have a custom or cloned voice, enter its ID here. This will override the voice selection above.</div>
+          </div>
+          
+          <div class="form-group">
+            <label for="elevenlabsModel">Model:</label>
+            <select id="elevenlabsModel" class="form-control">
+              <option value="eleven_multilingual_v2">Multilingual v2 (best quality, 29 languages)</option>
+              <option value="eleven_turbo_v2_5">Turbo v2.5 (faster, 32 languages)</option>
+              <option value="eleven_turbo_v2">Turbo v2 (fast, English only)</option>
+              <option value="eleven_monolingual_v1">Monolingual v1 (English only)</option>
+            </select>
+          </div>
+          
+          <div class="form-group tts-test-group">
+            <label for="ttsTestText">Test Text:</label>
+            <input type="text" id="ttsTestText" class="form-control" value="Hello! This is a test of the ElevenLabs text to speech system." placeholder="Enter text to test" />
+            <div class="tts-test-button-row">
+              <button id="testTTSBtn" class="primary-button">Test Voice</button>
+              <span id="ttsTestStatus" class="tts-test-status"></span>
+            </div>
+          </div>
+        </div>
+
         <!-- New section for debugging LLM requests and responses -->
         <div class="settings-section">
           <h2>LLM Debug</h2>

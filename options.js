@@ -44,6 +44,15 @@ const refreshLLMDataBtn = document.getElementById('refreshLLMDataBtn');
 const saveBtn = document.getElementById('saveBtn');
 const resetPromptBtn = document.getElementById('resetPromptBtn');
 
+// TTS Elements
+const elevenlabsApiKeyInput = document.getElementById('elevenlabsApiKey');
+const elevenlabsVoiceSelect = document.getElementById('elevenlabsVoice');
+const elevenlabsCustomVoiceIdInput = document.getElementById('elevenlabsCustomVoiceId');
+const elevenlabsModelSelect = document.getElementById('elevenlabsModel');
+const ttsTestTextInput = document.getElementById('ttsTestText');
+const testTTSBtn = document.getElementById('testTTSBtn');
+const ttsTestStatus = document.getElementById('ttsTestStatus');
+
 // --- Modal Elements ---
 const helpModal = document.getElementById('helpModal');
 const helpModalTitle = document.getElementById('helpModalTitle');
@@ -156,6 +165,11 @@ function initializeOptionsPage() {
     radio.addEventListener('change', updateLanguageSectionState);
   });
 
+  // TTS test button
+  if (testTTSBtn) {
+    testTTSBtn.addEventListener('click', testTTSVoice);
+  }
+
   // --- Help Modal Logic ---
   const helpContentMap = {
     customHelp: {
@@ -264,7 +278,12 @@ function restoreOptions() {
     lastRequestInfo: null,
     lastRequestPrompt: null,
     lastResponseInfo: null,
-    lastResponseContent: null
+    lastResponseContent: null,
+    // TTS settings
+    elevenlabsApiKey: '',
+    elevenlabsVoice: '21m00Tcm4TlvDq8ikWAM', // Default to Rachel
+    elevenlabsCustomVoiceId: '',
+    elevenlabsModel: 'eleven_multilingual_v2'
   };
 
   // Add provider prompt template keys to keysToGet
@@ -356,6 +375,20 @@ function restoreOptions() {
     // updateProviderFields will handle loading the correct prompt template into promptTemplateTextarea
     // based on items.selectedProvider and its stored `${items.selectedProvider}Prompt`
 
+    // Restore TTS settings
+    if (elevenlabsApiKeyInput) {
+      elevenlabsApiKeyInput.value = items.elevenlabsApiKey || '';
+    }
+    if (elevenlabsVoiceSelect) {
+      elevenlabsVoiceSelect.value = items.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM';
+    }
+    if (elevenlabsCustomVoiceIdInput) {
+      elevenlabsCustomVoiceIdInput.value = items.elevenlabsCustomVoiceId || '';
+    }
+    if (elevenlabsModelSelect) {
+      elevenlabsModelSelect.value = items.elevenlabsModel || 'eleven_multilingual_v2';
+    }
+
     fetchLastLLMData();
   });
 }
@@ -390,6 +423,13 @@ function saveOptions() {
   const standardLanguageText = languageSelect.options[languageSelect.selectedIndex]?.text || standardLanguageValue; // Get the display text
   const customLangText = customLanguageInput.value.trim();
 
+  // Get TTS settings
+  const elevenlabsApiKey = elevenlabsApiKeyInput ? elevenlabsApiKeyInput.value.trim() : '';
+  const elevenlabsVoice = elevenlabsVoiceSelect ? elevenlabsVoiceSelect.value : '21m00Tcm4TlvDq8ikWAM';
+  const elevenlabsVoiceName = elevenlabsVoiceSelect ? elevenlabsVoiceSelect.options[elevenlabsVoiceSelect.selectedIndex]?.text.split(' (')[0] : 'Rachel';
+  const elevenlabsCustomVoiceId = elevenlabsCustomVoiceIdInput ? elevenlabsCustomVoiceIdInput.value.trim() : '';
+  const elevenlabsModel = elevenlabsModelSelect ? elevenlabsModelSelect.value : 'eleven_multilingual_v2';
+
   const settingsToSave = {
     selectedProvider: provider,
     // Save provider-specific model
@@ -408,7 +448,13 @@ function saveOptions() {
     supportsTemperature: supportsTemperature(finalModel),
     languageMode: languageMode,
     targetLanguage: standardLanguageText,
-    customLanguage: customLangText,  
+    customLanguage: customLangText,
+    // TTS settings
+    elevenlabsApiKey: elevenlabsApiKey,
+    elevenlabsVoice: elevenlabsVoice,
+    elevenlabsVoiceName: elevenlabsVoiceName,
+    elevenlabsCustomVoiceId: elevenlabsCustomVoiceId,
+    elevenlabsModel: elevenlabsModel,
     settings: { 
       provider: provider, 
       model: finalModel, 
@@ -615,5 +661,125 @@ function updateLLMDebugUI(lastRequest, lastResponse) {
       responseInfoElement.textContent = "No response data available";
       responseContentElement.value = "";
     }
+  }
+}
+
+// --- TTS Test Functions ---
+let ttsTestAudio = null;
+
+function testTTSVoice() {
+  const apiKey = elevenlabsApiKeyInput ? elevenlabsApiKeyInput.value.trim() : '';
+  const customVoiceId = elevenlabsCustomVoiceIdInput ? elevenlabsCustomVoiceIdInput.value.trim() : '';
+  const selectedVoiceId = elevenlabsVoiceSelect ? elevenlabsVoiceSelect.value : '21m00Tcm4TlvDq8ikWAM';
+  
+  // Use custom voice ID if provided, otherwise use dropdown selection
+  const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
+  
+  const modelId = elevenlabsModelSelect ? elevenlabsModelSelect.value : 'eleven_multilingual_v2';
+  const testText = ttsTestTextInput ? ttsTestTextInput.value.trim() : 'Hello! This is a test.';
+  
+  if (!apiKey) {
+    showTTSTestStatus('Please enter your ElevenLabs API key first.', 'error');
+    return;
+  }
+  
+  if (!voiceId) {
+    showTTSTestStatus('Please select a voice or enter a custom voice ID.', 'error');
+    return;
+  }
+  
+  if (!testText) {
+    showTTSTestStatus('Please enter some text to test.', 'error');
+    return;
+  }
+  
+  // Stop any currently playing test audio
+  if (ttsTestAudio) {
+    ttsTestAudio.pause();
+    ttsTestAudio = null;
+  }
+  
+  // Update UI
+  showTTSTestStatus('Generating speech...', 'loading');
+  testTTSBtn.disabled = true;
+  testTTSBtn.textContent = 'Testing...';
+  
+  // Send test request to background script
+  chrome.runtime.sendMessage({
+    type: 'TEST_TTS',
+    payload: {
+      text: testText,
+      voiceId: voiceId,
+      apiKey: apiKey,
+      modelId: modelId
+    }
+  }, (response) => {
+    testTTSBtn.disabled = false;
+    testTTSBtn.textContent = 'Test Voice';
+    
+    if (chrome.runtime.lastError) {
+      showTTSTestStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+      return;
+    }
+    
+    if (response && response.success) {
+      showTTSTestStatus('Playing...', 'success');
+      playTestAudio(response.audio, response.mimeType);
+    } else {
+      showTTSTestStatus('Error: ' + (response?.error || 'Unknown error'), 'error');
+    }
+  });
+}
+
+function playTestAudio(base64Audio, mimeType) {
+  try {
+    // Convert base64 to blob
+    const binaryString = atob(base64Audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType || 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(blob);
+    
+    // Create and play audio
+    ttsTestAudio = new Audio(audioUrl);
+    
+    ttsTestAudio.addEventListener('ended', () => {
+      URL.revokeObjectURL(audioUrl);
+      showTTSTestStatus('Test complete!', 'success');
+      ttsTestAudio = null;
+    });
+    
+    ttsTestAudio.addEventListener('error', (e) => {
+      console.error('Audio playback error:', e);
+      URL.revokeObjectURL(audioUrl);
+      showTTSTestStatus('Playback error', 'error');
+      ttsTestAudio = null;
+    });
+    
+    ttsTestAudio.play().catch(err => {
+      console.error('Error playing test audio:', err);
+      showTTSTestStatus('Playback error: ' + err.message, 'error');
+    });
+    
+  } catch (e) {
+    console.error('Error creating audio from base64:', e);
+    showTTSTestStatus('Error creating audio', 'error');
+  }
+}
+
+function showTTSTestStatus(message, type) {
+  if (!ttsTestStatus) return;
+  
+  ttsTestStatus.textContent = message;
+  ttsTestStatus.className = 'tts-test-status';
+  
+  if (type === 'error') {
+    ttsTestStatus.classList.add('tts-test-error');
+  } else if (type === 'success') {
+    ttsTestStatus.classList.add('tts-test-success');
+  } else if (type === 'loading') {
+    ttsTestStatus.classList.add('tts-test-loading');
   }
 } 

@@ -22,6 +22,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let initialInsertionHasOccurred = false; // Flag for initial DOM insertion
   let errorModalDiv = null; // For the custom error modal
   let lastTranslatedElement = null; // To track the last element where translation was inserted
+  
+  // TTS-specific variables
+  let ttsOverlayDiv = null;
+  let ttsAudioElement = null;
 
   // Chat context for follow-up questions
   let chatContext = {
@@ -525,6 +529,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           resetChatInputState(chatInput, sendButton);
         }
       }
+    } else if (msg.type === "UGT_SHOW_TTS_OVERLAY" && window.self === window.top) {
+      showTTSOverlay();
+    } else if (msg.type === "UGT_HIDE_TTS_OVERLAY" && window.self === window.top) {
+      hideTTSOverlay();
+    } else if (msg.type === "PLAY_TTS_AUDIO") {
+      playTTSAudio(msg.audio, msg.mimeType);
+      sendResponse({ status: "playing" });
+      return true;
     }
     return msg.type === "PING";
   });
@@ -1397,4 +1409,173 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
     }, 15000); // Every 15 seconds
   };
+
+  // TTS Overlay functions
+  function showTTSOverlay() {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_SHOW_TTS_OVERLAY_RELAY" });
+      return;
+    }
+    if (ttsOverlayDiv) hideTTSOverlay();
+    
+    ttsOverlayDiv = document.createElement("div");
+    Object.assign(ttsOverlayDiv.style, {
+      position: "fixed",
+      top: "10px",
+      right: "10px",
+      padding: "12px 16px",
+      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      color: "#fff",
+      borderRadius: "8px",
+      zIndex: "2147483647",
+      fontSize: "14px",
+      fontFamily: "Arial, sans-serif",
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)"
+    });
+    
+    // Speaker icon
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = "🔊";
+    iconSpan.style.fontSize = "18px";
+    ttsOverlayDiv.appendChild(iconSpan);
+    
+    // Text
+    const textSpan = document.createElement("span");
+    textSpan.className = "tts-overlay-text";
+    textSpan.textContent = "Generating speech...";
+    ttsOverlayDiv.appendChild(textSpan);
+    
+    // Spinner
+    const spinnerSpan = document.createElement("span");
+    spinnerSpan.className = "tts-spinner";
+    spinnerSpan.textContent = "⠋";
+    spinnerSpan.style.display = "inline-block";
+    spinnerSpan.style.width = "1em";
+    spinnerSpan.style.animation = "none";
+    ttsOverlayDiv.appendChild(spinnerSpan);
+    
+    // Animate spinner
+    const dots = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let frame = 0;
+    ttsOverlayDiv._spinnerInterval = setInterval(() => {
+      frame = (frame + 1) % dots.length;
+      spinnerSpan.textContent = dots[frame];
+    }, 100);
+    
+    // Close button
+    const closeBtn = document.createElement("span");
+    closeBtn.innerHTML = "✖";
+    closeBtn.style.cursor = "pointer";
+    closeBtn.style.marginLeft = "8px";
+    closeBtn.style.color = "#ffcccc";
+    closeBtn.title = "Stop";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      stopTTSAudio();
+      hideTTSOverlay();
+    });
+    ttsOverlayDiv.appendChild(closeBtn);
+    
+    document.body.appendChild(ttsOverlayDiv);
+  }
+  
+  function hideTTSOverlay() {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_HIDE_TTS_OVERLAY_RELAY" });
+      return;
+    }
+    if (!ttsOverlayDiv) return;
+    
+    if (ttsOverlayDiv._spinnerInterval) {
+      clearInterval(ttsOverlayDiv._spinnerInterval);
+    }
+    
+    ttsOverlayDiv.remove();
+    ttsOverlayDiv = null;
+  }
+  
+  function updateTTSOverlay(text) {
+    if (!ttsOverlayDiv) return;
+    const textSpan = ttsOverlayDiv.querySelector('.tts-overlay-text');
+    if (textSpan) {
+      textSpan.textContent = text;
+    }
+    // Hide spinner when playing
+    const spinnerSpan = ttsOverlayDiv.querySelector('.tts-spinner');
+    if (spinnerSpan) {
+      spinnerSpan.style.display = 'none';
+      if (ttsOverlayDiv._spinnerInterval) {
+        clearInterval(ttsOverlayDiv._spinnerInterval);
+        ttsOverlayDiv._spinnerInterval = null;
+      }
+    }
+  }
+  
+  function playTTSAudio(base64Audio, mimeType) {
+    // Stop any existing audio
+    stopTTSAudio();
+    
+    try {
+      // Convert base64 to blob
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType || 'audio/mpeg' });
+      const audioUrl = URL.createObjectURL(blob);
+      
+      // Create audio element
+      ttsAudioElement = new Audio(audioUrl);
+      
+      // Update overlay when playing starts
+      ttsAudioElement.addEventListener('playing', () => {
+        updateTTSOverlay("Playing...");
+      });
+      
+      // Clean up when done
+      ttsAudioElement.addEventListener('ended', () => {
+        URL.revokeObjectURL(audioUrl);
+        hideTTSOverlay();
+        ttsAudioElement = null;
+      });
+      
+      // Handle errors
+      ttsAudioElement.addEventListener('error', (e) => {
+        console.error("Audio playback error:", e);
+        URL.revokeObjectURL(audioUrl);
+        hideTTSOverlay();
+        ttsAudioElement = null;
+      });
+      
+      // Play
+      ttsAudioElement.play().catch(err => {
+        console.error("Error playing TTS audio:", err);
+        hideTTSOverlay();
+      });
+      
+    } catch (e) {
+      console.error("Error creating audio from base64:", e);
+      hideTTSOverlay();
+    }
+  }
+  
+  function stopTTSAudio() {
+    if (ttsAudioElement) {
+      try {
+        ttsAudioElement.pause();
+        ttsAudioElement.currentTime = 0;
+        // Revoke the object URL if it exists
+        if (ttsAudioElement.src && ttsAudioElement.src.startsWith('blob:')) {
+          URL.revokeObjectURL(ttsAudioElement.src);
+        }
+      } catch (e) {
+        console.error("Error stopping TTS audio:", e);
+      }
+      ttsAudioElement = null;
+    }
+  }
 } 

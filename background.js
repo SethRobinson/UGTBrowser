@@ -1,8 +1,10 @@
 // background.js
 
-const CONTEXT_MENU_ID = "ugtbrowser_translate";
-// Remove the settings context menu ID as we're no longer using it
-// const CONTEXT_MENU_SETTINGS_ID = "ugtbrowser_settings";
+// Context menu IDs - nested structure
+const CONTEXT_MENU_PARENT = "ugtbrowser_parent";
+const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
+const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
+const CONTEXT_MENU_SETTINGS = "ugtbrowser_settings";
 
 // Models that don't support temperature settings
 const noTemperatureModels = [
@@ -166,31 +168,75 @@ function buildTranslateTitle(settings) {
     langName = langName.substring(0, 16) + "...";
   }
 
-  return `Translate to ${langName} with ${providerName} (UGTBrowser)`;
+  return `Translate to ${langName} with ${providerName}`;
+}
+
+function buildSpeakTitle(settings) {
+  let voiceName = "Default";
+  
+  // If custom voice ID is set, show "Custom Voice" instead of the dropdown selection
+  if (settings && settings.elevenlabsCustomVoiceId && settings.elevenlabsCustomVoiceId.length > 0) {
+    voiceName = "Custom Voice";
+  } else if (settings && settings.elevenlabsVoiceName) {
+    voiceName = settings.elevenlabsVoiceName;
+  }
+  
+  // Truncate if too long
+  if (voiceName.length > 20) {
+    voiceName = voiceName.substring(0, 20) + "...";
+  }
+  
+  return `Speak with ElevenLabs (${voiceName})`;
 }
 
 function createContextMenus(settings = {}) {
   chrome.contextMenus.removeAll(() => {
+    // Create parent menu item
     chrome.contextMenus.create({
-      id: CONTEXT_MENU_ID,
+      id: CONTEXT_MENU_PARENT,
+      title: "UGTBrowser",
+      contexts: ["selection"]
+    });
+    
+    // Create Translate child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE,
+      parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings),
       contexts: ["selection"]
     });
-
-   
+    
+    // Create Speak child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_SPEAK,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildSpeakTitle(settings),
+      contexts: ["selection"]
+    });
+    
+    // Create Settings child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_SETTINGS,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Settings",
+      contexts: ["selection"]
+    });
   });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   // Fetch all relevant settings to build the initial context menu title correctly
   chrome.storage.local.get([
-    'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
+    'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
+    'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'
   ], (fullSettings) => {
     const effectiveSettings = {
       provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
       languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
       targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
-      customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || ''
+      customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
+      elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',
+      elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || ''
     };
     createContextMenus(effectiveSettings);
   });
@@ -200,7 +246,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local") {
     // Check if any of the relevant settings changed
-    const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'];
+    const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'];
     let needsUpdate = false;
     for (const key of relevantChanges) {
       if (changes[key]) {
@@ -212,7 +258,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (needsUpdate) {
       // Fetch all current settings to rebuild the title correctly
       chrome.storage.local.get([
-        'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider'
+        'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
+        'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'
       ], (fullSettings) => {
         // The `settings` object from storage might be nested or flat depending on how it was saved.
         // We need to construct a comprehensive object for buildTranslateTitle.
@@ -220,7 +267,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
           provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
           languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
           targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
-          customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || ''
+          customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
+          elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',
+          elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || ''
         };
         createContextMenus(effectiveSettings);
       });
@@ -353,6 +402,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === "UGT_OPEN_PREVIEW_RELAY") {
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_OPEN_PREVIEW", text: message.text });
     return;
+  } else if (message.type === "TEST_TTS") {
+    // Handle TTS test from options page
+    const { text, voiceId, apiKey, modelId } = message.payload;
+    
+    fetchFromElevenLabs(text, voiceId, apiKey, modelId)
+      .then(base64Audio => {
+        sendResponse({ success: true, audio: base64Audio, mimeType: "audio/mpeg" });
+      })
+      .catch(error => {
+        console.error("TTS test error:", error);
+        sendResponse({ success: false, error: error.message || String(error) });
+      });
+    return true; // Keep message channel open for async response
   } else if (message.type === "CHAT_FOLLOWUP") {
     // Handle follow-up chat questions about cultural nuances
     const { question, originalText, culturalNuances, chatHistory } = message.payload;
@@ -727,7 +789,14 @@ async function checkIfContentScriptLoaded(tabId, frameId) {
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === CONTEXT_MENU_ID && info.selectionText) {
+  // Handle Settings menu item
+  if (info.menuItemId === CONTEXT_MENU_SETTINGS) {
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+  
+  // Handle Translate menu item
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE && info.selectionText) {
     chrome.storage.local.get(null, async (data) => { 
       const settings = data.settings || {};
       const messagePayload = { 
@@ -737,26 +806,76 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       };
       
       try {
-        // REMOVED: checkIfContentScriptLoaded and programmatic injection logic.
-        // Relying on manifest.json's "all_frames": true for content_scripts.
-        
-        // MODIFIED: Added frameId to options for sendMessage, using info.frameId
-        // Added callback for error handling
         chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId }, (response) => {
           if (chrome.runtime.lastError) {
             console.error(`Error sending TRANSLATE_SELECTION to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
-            // User could be notified here if this initial message fails.
-          } else {
-            // Optional: console.log("TRANSLATE_SELECTION message sent, response from content script:", response);
           }
         });
       } catch (error) { 
-        // This catch block might still be useful for synchronous errors during messagePayload construction,
-        // though less likely to catch the "no receiving end" for sendMessage with a callback.
         console.error("Synchronous error in context menu click handler:", error.message);
       }
     });
-  } 
+    return;
+  }
+  
+  // Handle Speak (TTS) menu item
+  if (info.menuItemId === CONTEXT_MENU_SPEAK && info.selectionText) {
+    chrome.storage.local.get([
+      'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel'
+    ], async (data) => {
+      const apiKey = data.elevenlabsApiKey;
+      const customVoiceId = data.elevenlabsCustomVoiceId || '';
+      const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM"; // Default to Rachel
+      
+      // Use custom voice ID if provided (non-empty string), otherwise use dropdown selection
+      const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
+      const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
+      
+      if (!apiKey) {
+        // Notify user that API key is missing
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
+          errorContext: "API_KEY_ISSUE"
+        }, { frameId: info.frameId });
+        return;
+      }
+      
+      // Show TTS overlay
+      chrome.tabs.sendMessage(tab.id, { 
+        type: "UGT_SHOW_TTS_OVERLAY"
+      }, { frameId: info.frameId });
+      
+      try {
+        const base64Audio = await fetchFromElevenLabs(info.selectionText, voiceId, apiKey, modelId);
+        
+        // Send audio to content script for playback
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "PLAY_TTS_AUDIO",
+          audio: base64Audio,
+          mimeType: "audio/mpeg"
+        }, { frameId: info.frameId }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
+          }
+        });
+        
+      } catch (error) {
+        console.error("ElevenLabs TTS error:", error);
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: `ElevenLabs TTS error: ${error.message}`,
+          errorContext: "API_KEY_ISSUE"
+        }, { frameId: info.frameId });
+        
+        // Hide overlay on error
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_HIDE_TTS_OVERLAY"
+        }, { frameId: info.frameId });
+      }
+    });
+    return;
+  }
 });
 
 // New streaming translation function
@@ -1637,6 +1756,70 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
 
 // Helper function to use non-streaming API as fallback IS NO LONGER DIRECTLY CALLED HERE / TO BE REWORKED OR REMOVED
 // async function fallbackToNonStreaming(prompt, modelId, apiKey, port) { ... }
+
+// ElevenLabs TTS API function
+async function fetchFromElevenLabs(text, voiceId, apiKey, modelId = "eleven_multilingual_v2") {
+  if (!apiKey) throw new Error("ElevenLabs API key is required");
+  if (!voiceId) throw new Error("Voice ID is required");
+  
+  const endpoint = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+  
+  const requestBody = {
+    text: text,
+    model_id: modelId,
+    voice_settings: {
+      stability: 0.5,
+      similarity_boost: 0.75
+    }
+  };
+  
+  console.log(`ElevenLabs TTS request: voice=${voiceId}, model=${modelId}, text length=${text.length}`);
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "xi-api-key": apiKey
+    },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    let errorMessage = `ElevenLabs API error: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail && errorData.detail.message) {
+        errorMessage = errorData.detail.message;
+      } else if (errorData.detail) {
+        errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+      }
+    } catch (e) {
+      // Couldn't parse error response
+    }
+    throw new Error(errorMessage);
+  }
+  
+  // Get audio data as ArrayBuffer
+  const audioBuffer = await response.arrayBuffer();
+  
+  // Convert to base64 for sending to content script
+  const base64Audio = arrayBufferToBase64(audioBuffer);
+  
+  console.log(`ElevenLabs TTS response: audio size=${audioBuffer.byteLength} bytes`);
+  
+  return base64Audio;
+}
+
+// Helper function to convert ArrayBuffer to base64
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 // Open options page when the browser action is clicked
 chrome.action.onClicked.addListener(() => {
