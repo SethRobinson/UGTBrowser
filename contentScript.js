@@ -22,6 +22,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let initialInsertionHasOccurred = false; // Flag for initial DOM insertion
   let errorModalDiv = null; // For the custom error modal
   let lastTranslatedElement = null; // To track the last element where translation was inserted
+  let currentTranslationBatchId = null; // Track current translation batch for toggle feature
   
   // TTS-specific variables
   let ttsOverlayDiv = null;
@@ -387,6 +388,99 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
   }
 
+  // Helper function to create the "Toggle All" button for switching between original and translated text
+  function createToggleAllButton(batchId) {
+    const btn = document.createElement('button');
+    btn.className = 'ugt-toggle-all-btn';
+    btn.textContent = '⇄ Show Original';
+    btn.setAttribute('data-showing', 'translated');
+    btn.setAttribute('data-batch-id', batchId);
+    
+    Object.assign(btn.style, {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      marginLeft: '10px',
+      marginTop: '12px',
+      marginBottom: '8px',
+      padding: '6px 14px',
+      fontSize: '13px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontWeight: '500',
+      color: '#6b8afd',
+      backgroundColor: 'rgba(107, 138, 253, 0.08)',
+      border: '1px solid rgba(107, 138, 253, 0.25)',
+      borderRadius: '16px',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+      lineHeight: '1.4'
+    });
+    
+    // Hover effects
+    btn.addEventListener('mouseenter', () => {
+      btn.style.backgroundColor = 'rgba(107, 138, 253, 0.15)';
+      btn.style.borderColor = 'rgba(107, 138, 253, 0.4)';
+    });
+    
+    btn.addEventListener('mouseleave', () => {
+      btn.style.backgroundColor = 'rgba(107, 138, 253, 0.08)';
+      btn.style.borderColor = 'rgba(107, 138, 253, 0.25)';
+    });
+    
+    // Click handler for toggling all segments
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleAllTranslations(batchId, btn);
+    });
+    
+    return btn;
+  }
+
+  // Toggle all translations in a batch between original and translated text
+  function toggleAllTranslations(batchId, btn) {
+    const segments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    const currentlyShowing = btn.getAttribute('data-showing');
+    
+    segments.forEach(span => {
+      const originalText = span.getAttribute('data-original-text');
+      const translatedText = span.getAttribute('data-translated-text');
+      
+      // Skip segments that didn't actually change
+      if (!translatedText || originalText.trim() === translatedText.trim()) return;
+      
+      if (currentlyShowing === 'translated') {
+        // Switch to showing original
+        span.textContent = originalText;
+      } else {
+        // Switch to showing translated
+        span.textContent = translatedText;
+      }
+    });
+    
+    // Update button state
+    if (currentlyShowing === 'translated') {
+      btn.textContent = '⇄ Show Translation';
+      btn.setAttribute('data-showing', 'original');
+    } else {
+      btn.textContent = '⇄ Show Original';
+      btn.setAttribute('data-showing', 'translated');
+    }
+  }
+
+  // Check if any segments in a batch actually changed and need a toggle
+  function batchHasChangedSegments(batchId) {
+    const segments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    for (const span of segments) {
+      const originalText = span.getAttribute('data-original-text');
+      const translatedText = span.getAttribute('data-translated-text');
+      if (translatedText && originalText.trim() !== translatedText.trim()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // NEW: Helper function to check for Asian languages that don't use spaces
   function TargetLanguageIsAnAsianLanguageThatDoesntUseSpaces(targetLang) {
     if (!targetLang) return false; // Default to space-using if lang is unknown or not provided
@@ -670,6 +764,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 }
               }
               targetSpan.textContent = finalTranslatedContent;
+              targetSpan.setAttribute('data-translated-text', finalTranslatedContent); // Store for toggle feature
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`No placeholder span found for ugt_id: ${ugtId}`);
@@ -769,6 +864,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 }
               }
               targetSpan.textContent = finalTranslatedContent;
+              targetSpan.setAttribute('data-translated-text', finalTranslatedContent); // Store for toggle feature
               lastTranslatedElement = targetSpan; // Update last translated element
             } else {
               console.warn(`(Complete) No placeholder span for ugt_id: ${ugtId}`);
@@ -776,6 +872,29 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             lastIndex = tagRegex.lastIndex;
           }
           streamBuffer = streamBuffer.substring(lastIndex); // Remove processed parts
+          
+          // Add "Toggle All" button if there are segments that changed
+          if (lastTranslatedElement && currentTranslationBatchId && batchHasChangedSegments(currentTranslationBatchId)) {
+            const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
+            
+            // Find insertion point - outside any anchor elements
+            let toggleInsertionParent = lastTranslatedElement.parentNode;
+            let toggleInsertAfter = lastTranslatedElement;
+            
+            let currentEl = lastTranslatedElement;
+            while (currentEl && currentEl !== document.body) {
+              if (currentEl.tagName === 'A') {
+                toggleInsertionParent = currentEl.parentNode;
+                toggleInsertAfter = currentEl;
+                break;
+              }
+              currentEl = currentEl.parentNode;
+            }
+            
+            if (toggleInsertionParent) {
+              toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+            }
+          }
           
           if (streamBuffer.length > 0 && lastTranslatedElement) {
             const extraText = streamBuffer.trim();
@@ -825,8 +944,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 currentElement = currentElement.parentNode;
               }
               
+              // Skip past the "Toggle All" button if it was added
+              let insertBeforeRef = insertAfter.nextSibling;
+              if (insertBeforeRef && insertBeforeRef.classList && insertBeforeRef.classList.contains('ugt-toggle-all-btn')) {
+                insertBeforeRef = insertBeforeRef.nextSibling;
+              }
+              
               if (insertionParent) {
-                insertionParent.insertBefore(extraTextContainer, insertAfter.nextSibling);
+                insertionParent.insertBefore(extraTextContainer, insertBeforeRef);
               } else {
                 // Fallback: append to body if somehow lost its parent
                 document.body.appendChild(extraTextContainer);
@@ -1019,6 +1144,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
     const segmentsToTranslate = [];
     let segmentCounter = 0;
+    
+    // Generate a unique batch ID for this translation request (for toggle feature)
+    currentTranslationBatchId = generateId();
 
     // Use a TreeWalker to find all text nodes within the cloned fragment
     const walker = document.createTreeWalker(originalFragmentClone, NodeFilter.SHOW_TEXT, null, false);
@@ -1040,6 +1168,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
       const span = document.createElement('span');
       span.setAttribute('data-ugt-id', uniqueIdCore); // The span data-id does not have "ugt_" prefix
+      span.setAttribute('data-original-text', originalText); // Store original for toggle feature
+      span.setAttribute('data-ugt-batch', currentTranslationBatchId); // Batch ID for toggle all feature
       span.className = UGT_SEGMENT_CLASS;
       span.textContent = originalText; // Pre-fill with original text
 
