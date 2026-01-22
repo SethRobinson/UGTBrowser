@@ -19,6 +19,11 @@ const openaiApiKeyHelp = document.getElementById('openaiApiKeyHelp');
 const anthropicApiKeyHelp = document.getElementById('anthropicApiKeyHelp');
 const geminiApiKeyHelp = document.getElementById('geminiApiKeyHelp');
 
+const openaiThinkingWrapper = document.getElementById('openaiThinkingWrapper');
+const geminiThinkingWrapper = document.getElementById('geminiThinkingWrapper');
+const openaiThinkingCheckbox = document.getElementById('openaiThinkingCheckbox');
+const geminiThinkingCheckbox = document.getElementById('geminiThinkingCheckbox');
+
 const promptTemplateTextarea = document.getElementById('promptTemplate');
 const creativeTaskTextarea = document.getElementById('creativeTaskTextarea');
 const mainPromptHelpBtn = document.getElementById('mainPromptHelpBtn');
@@ -47,15 +52,15 @@ const modalCloseBtn = document.querySelector('.modal-close-btn');
 
 // --- Configuration Data ---
 const noTemperatureModels = [
-  "o3", "o4-mini", "gemini-1.5-pro", "gemini-1.5-flash", 
-  "gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash",
-  "gemini-2.5-pro-preview-05-06"
+  "gpt-5-mini", "gpt-5-nano", 
+  "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+  "gemini-3-pro-preview", "gemini-3-flash-preview"
 ];
 
 const providerModels = {
-  openai: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "o3", "o4-mini"],
-  anthropic: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
-  gemini: ["gemini-2.0-flash", "gemini-2.5-pro-preview-05-06", "gemini-2.5-flash-preview-04-17", "gemini-1.5-pro", "gemini-1.5-flash"]
+  openai: ["gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
+  anthropic: ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"],
+  gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 };
 
 const defaultPrompts = {
@@ -107,10 +112,30 @@ const defaultPrompts = {
 function initializeOptionsPage() {
   // Setup event listeners
   providerSelect.addEventListener('change', () => {
-    updateProviderFields();
-    updateModelOptions();
+    // Restore the model for the newly selected provider
+    const newProvider = providerSelect.value;
+    chrome.storage.local.get([
+      `${newProvider}Model`,
+      `${newProvider}CustomModel`
+    ], (items) => {
+      const providerModelKey = `${newProvider}Model`;
+      const providerCustomModelKey = `${newProvider}CustomModel`;
+      
+      // Use provider-specific model only (don't fallback to old 'model' key when switching providers
+      // as that was for a different provider - migration happens on initial load)
+      const savedModel = items[providerModelKey] || '';
+      const savedCustomModel = items[providerCustomModelKey] || '';
+      
+      updateProviderFields();
+      updateModelOptions(savedModel || providerModels[newProvider]?.[0], savedCustomModel);
+      updateThinkingCheckboxVisibility();
+    });
   });
-  modelSelect.addEventListener('change', updateCustomModelVisibility);
+  modelSelect.addEventListener('change', () => {
+    updateCustomModelVisibility();
+    updateThinkingCheckboxVisibility();
+  });
+  customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
   saveBtn.addEventListener('click', saveOptions);
   resetPromptBtn.addEventListener('click', resetPromptToDefault);
   
@@ -215,18 +240,27 @@ function initializeOptionsPage() {
 
 // --- Core Functions ---
 function restoreOptions() {
-  // Define all keys we might retrieve, including provider-specific prompt templates
+  // Define all keys we might retrieve, including provider-specific prompt templates and models
   const keysToGet = {
     selectedProvider: 'openai',
     openaiApiKey: '',
     anthropicApiKey: '',
     geminiApiKey: '',
-    model: '',
-    customModel: '',
+    // Provider-specific models (for backward compatibility, also check old 'model' key)
+    openaiModel: '',
+    anthropicModel: '',
+    geminiModel: '',
+    openaiCustomModel: '',
+    anthropicCustomModel: '',
+    geminiCustomModel: '',
+    model: '', // Old key for backward compatibility
+    customModel: '', // Old key for backward compatibility
     languageMode: 'standard',
     targetLanguage: 'en',
     customLanguage: '',
     globalCreativeTask: '', 
+    openaiThinkingEnabled: false,
+    geminiThinkingEnabled: false,
     lastRequestInfo: null,
     lastRequestPrompt: null,
     lastResponseInfo: null,
@@ -243,8 +277,50 @@ function restoreOptions() {
     openAIApiKeyInput.value = items.openaiApiKey;
     anthropicApiKeyInput.value = items.anthropicApiKey;
     geminiApiKeyInput.value = items.geminiApiKey;
-    customModelInput.value = items.customModel;
-    creativeTaskTextarea.value = items.globalCreativeTask;
+    // Restore provider-specific model (with backward compatibility for old 'model' key)
+    const providerModelKey = `${items.selectedProvider}Model`;
+    const providerCustomModelKey = `${items.selectedProvider}CustomModel`;
+    
+    // For backward compatibility: use old 'model' key if no provider-specific model exists
+    // This handles upgrades from older versions - the old model was for the selected provider
+    let savedModel = items[providerModelKey];
+    let savedCustomModel = items[providerCustomModelKey];
+    
+    // Migrate old keys to provider-specific keys on first load after upgrade
+    if (!savedModel && items.model) {
+      savedModel = items.model;
+      // Migrate to provider-specific key for future use
+      const migrationData = {};
+      migrationData[providerModelKey] = items.model;
+      if (items.customModel) {
+        migrationData[providerCustomModelKey] = items.customModel;
+        savedCustomModel = items.customModel;
+      }
+      chrome.storage.local.set(migrationData);
+    } else if (!savedCustomModel && items.customModel) {
+      savedCustomModel = items.customModel;
+      // Migrate custom model too
+      const migrationData = {};
+      migrationData[providerCustomModelKey] = items.customModel;
+      chrome.storage.local.set(migrationData);
+    }
+    
+    customModelInput.value = savedCustomModel || '';
+    
+    // Set default creative task if empty (for new installations)
+    if (!items.globalCreativeTask || items.globalCreativeTask.trim() === '') {
+      creativeTaskTextarea.value = 'After translating, explain any cultural nuances found in the original text.';
+    } else {
+      creativeTaskTextarea.value = items.globalCreativeTask;
+    }
+    
+    // Restore thinking checkboxes
+    if (openaiThinkingCheckbox) {
+      openaiThinkingCheckbox.checked = items.openaiThinkingEnabled === true;
+    }
+    if (geminiThinkingCheckbox) {
+      geminiThinkingCheckbox.checked = items.geminiThinkingEnabled === true;
+    }
 
     const currentLanguageMode = items.languageMode;
     document.querySelector(`input[name="languageMode"][value="${currentLanguageMode}"]`).checked = true;
@@ -272,8 +348,9 @@ function restoreOptions() {
     customLanguageInput.value = items.customLanguage;
     
     updateProviderFields(); // Updates API key visibility, model dropdowns, and loads the provider's prompt template
-    updateModelOptions(items.model || providerModels[items.selectedProvider]?.[0], items.customModel);
+    updateModelOptions(savedModel || providerModels[items.selectedProvider]?.[0], savedCustomModel);
     updateLanguageSectionState();
+    updateThinkingCheckboxVisibility();
     
     // Load the specific prompt template for the restored provider
     // updateProviderFields will handle loading the correct prompt template into promptTemplateTextarea
@@ -315,13 +392,19 @@ function saveOptions() {
 
   const settingsToSave = {
     selectedProvider: provider,
+    // Save provider-specific model
+    [`${provider}Model`]: finalModel,
+    [`${provider}CustomModel`]: customModelValue,
+    // Keep old keys for backward compatibility
     model: finalModel,
-    customModel: customModelValue, 
+    customModel: customModelValue,
     openaiApiKey: openaiApiKey,
     anthropicApiKey: anthropicApiKey,
     geminiApiKey: geminiApiKey,
     [`${provider}Prompt`]: promptTemplateFromUI, // Store the UNRESOLVED template for this provider
     globalCreativeTask: creativeTaskText, 
+    openaiThinkingEnabled: openaiThinkingCheckbox ? openaiThinkingCheckbox.checked : false,
+    geminiThinkingEnabled: geminiThinkingCheckbox ? geminiThinkingCheckbox.checked : false,
     supportsTemperature: supportsTemperature(finalModel),
     languageMode: languageMode,
     targetLanguage: standardLanguageText,
@@ -332,7 +415,9 @@ function saveOptions() {
       apiKey: provider === 'openai' ? openaiApiKey : (provider === 'anthropic' ? anthropicApiKey : geminiApiKey),
       promptTemplate: resolvedPromptForBackground, // Store the RESOLVED prompt for the background script
       targetLang: languageMode === 'custom' ? customLangText : (standardLanguageText || 'English'),
-      streaming: true 
+      streaming: true,
+      openaiThinkingEnabled: openaiThinkingCheckbox ? openaiThinkingCheckbox.checked : false,
+      geminiThinkingEnabled: geminiThinkingCheckbox ? geminiThinkingCheckbox.checked : false
     }
   };
   
@@ -435,6 +520,47 @@ function resetPromptToDefault() {
 
 function supportsTemperature(model) {
   return !noTemperatureModels.includes(model);
+}
+
+// Helper functions to check if models support thinking
+function isGPT5Model(model) {
+  if (!model) return false;
+  return model.startsWith('gpt-5');
+}
+
+function isGemini25Or3Model(model) {
+  if (!model) return false;
+  return model.startsWith('gemini-2.5') || model.startsWith('gemini-3');
+}
+
+function updateThinkingCheckboxVisibility() {
+  const provider = providerSelect.value;
+  const selectedModelValue = modelSelect.value;
+  const customModelValue = customModelInput.value.trim();
+  
+  // Determine the actual model being used
+  let actualModel = selectedModelValue;
+  if (customModelValue && (selectedModelValue === '' || !providerModels[provider] || providerModels[provider].length === 0 || !providerModels[provider].includes(selectedModelValue))) {
+    actualModel = customModelValue;
+  }
+  
+  // Show/hide OpenAI thinking checkbox
+  if (openaiThinkingWrapper && openaiThinkingCheckbox) {
+    if (provider === 'openai' && isGPT5Model(actualModel)) {
+      openaiThinkingWrapper.style.display = 'block';
+    } else {
+      openaiThinkingWrapper.style.display = 'none';
+    }
+  }
+  
+  // Show/hide Gemini thinking checkbox
+  if (geminiThinkingWrapper && geminiThinkingCheckbox) {
+    if (provider === 'gemini' && isGemini25Or3Model(actualModel)) {
+      geminiThinkingWrapper.style.display = 'block';
+    } else {
+      geminiThinkingWrapper.style.display = 'none';
+    }
+  }
 }
 
 // --- LLM Debug Functions ---
