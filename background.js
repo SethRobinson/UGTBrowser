@@ -2,6 +2,68 @@
 
 // Context menu IDs - nested structure
 const CONTEXT_MENU_PARENT = "ugtbrowser_parent";
+
+// Helper function to check if a URL is restricted (content scripts cannot run)
+function isRestrictedUrl(url) {
+  if (!url) return true;
+  const restrictedPrefixes = [
+    'chrome://',
+    'chrome-extension://',
+    'about:',
+    'edge://',
+    'brave://',
+    'opera://',
+    'vivaldi://',
+    'moz-extension://',
+    'file://',  // File URLs may also be restricted depending on settings
+    'view-source:',
+    'data:',
+    'javascript:',
+    'devtools://'
+  ];
+  const lowerUrl = url.toLowerCase();
+  return restrictedPrefixes.some(prefix => lowerUrl.startsWith(prefix));
+}
+
+// Helper function to show a warning notification for restricted pages
+// action: 'translate' or 'speak'
+function showRestrictedPageWarning(url, action = 'translate') {
+  let pageType = "this page";
+  if (url) {
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.startsWith('chrome-extension://')) {
+      pageType = "Chrome extension pages";
+    } else if (lowerUrl.startsWith('chrome://')) {
+      pageType = "Chrome internal pages";
+    } else if (lowerUrl.startsWith('edge://')) {
+      pageType = "Edge internal pages";
+    } else if (lowerUrl.startsWith('about:')) {
+      pageType = "browser about pages";
+    } else if (lowerUrl.startsWith('file://')) {
+      pageType = "local file pages";
+    } else {
+      pageType = "this type of page";
+    }
+  }
+  
+  const actionVerb = action === 'speak' ? 'use text-to-speech' : 'translate';
+  
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: 'UGTBrowser',
+    message: `Cannot ${actionVerb} on ${pageType}. Browser security prevents extensions from modifying content on these protected pages.`,
+    priority: 1
+  }, (notificationId) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error showing notification:", chrome.runtime.lastError.message);
+    }
+    // Auto-close notification after 5 seconds
+    setTimeout(() => {
+      chrome.notifications.clear(notificationId);
+    }, 5000);
+  });
+}
 const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
 const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
 const CONTEXT_MENU_SETTINGS = "ugtbrowser_settings";
@@ -854,6 +916,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   
   // Handle Translate menu item
   if (info.menuItemId === CONTEXT_MENU_TRANSLATE && info.selectionText) {
+    // Check if the page is restricted before attempting to translate
+    if (isRestrictedUrl(tab.url)) {
+      showRestrictedPageWarning(tab.url);
+      return;
+    }
+    
     chrome.storage.local.get(null, async (data) => { 
       const settings = data.settings || {};
       const messagePayload = { 
@@ -877,6 +945,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   
   // Handle Speak (TTS) menu item
   if (info.menuItemId === CONTEXT_MENU_SPEAK && info.selectionText) {
+    // Check if the page is restricted before attempting TTS
+    if (isRestrictedUrl(tab.url)) {
+      showRestrictedPageWarning(tab.url, 'speak');
+      return;
+    }
+    
     chrome.storage.local.get([
       'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
       'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'

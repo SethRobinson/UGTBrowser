@@ -39,60 +39,194 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // NEW: Class name for our translation segments/placeholders
   const UGT_SEGMENT_CLASS = "ugt-translation-segment";
 
-  // Helper function to convert simple markdown to HTML for cultural nuances display
+  // Helper function to convert markdown to HTML for cultural nuances and chat display
   function simpleMarkdownToHtml(text) {
     if (!text) return '';
     
-    // Escape HTML special characters first (for safety)
-    let html = text
+    // Use Unicode markers for placeholders to avoid conflicts with markdown syntax
+    // These characters are extremely unlikely to appear in normal text
+    const PH_START = '\u2987'; // ⦇
+    const PH_END = '\u2988';   // ⦈
+    
+    // First, extract and protect code blocks before any other processing
+    const codeBlockPlaceholders = [];
+    let protectedText = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+      const placeholder = `${PH_START}CODEBLOCK${codeBlockPlaceholders.length}${PH_END}`;
+      codeBlockPlaceholders.push({ lang, code: code.trim() });
+      return placeholder;
+    });
+    
+    // Protect inline code
+    const inlineCodePlaceholders = [];
+    protectedText = protectedText.replace(/`([^`]+)`/g, (match, code) => {
+      const placeholder = `${PH_START}INLINECODE${inlineCodePlaceholders.length}${PH_END}`;
+      inlineCodePlaceholders.push(code);
+      return placeholder;
+    });
+    
+    // Extract and protect markdown links before escaping HTML
+    const linkPlaceholders = [];
+    protectedText = protectedText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+      const placeholder = `${PH_START}LINK${linkPlaceholders.length}${PH_END}`;
+      linkPlaceholders.push({ text: linkText, url: url });
+      return placeholder;
+    });
+    
+    // Also protect plain URLs (http/https) that aren't already in markdown links
+    const urlPlaceholders = [];
+    protectedText = protectedText.replace(/(?<![\[(])(https?:\/\/[^\s<>\[\]()]+)/g, (match, url) => {
+      const placeholder = `${PH_START}URL${urlPlaceholders.length}${PH_END}`;
+      urlPlaceholders.push(url);
+      return placeholder;
+    });
+    
+    // Escape HTML special characters (for safety)
+    let html = protectedText
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     
+    // IMPORTANT: Apply inline formatting BEFORE restoring placeholders
+    // Placeholders now use Unicode markers (⦇⦈) that won't conflict with markdown
+    
     // Convert **bold** to <strong>
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     
-    // Convert _italic_ or inline *italic* to <em> (simpler pattern to avoid matching bullets)
-    html = html.replace(/\b_([^_]+)_\b/g, '<em>$1</em>');
-    html = html.replace(/(\s)\*([^*\n]+)\*(\s|[.,;:!?])/g, '$1<em>$2</em>$3');
+    // Convert __bold__ to <strong>
+    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     
-    // Split into lines for processing
+    // Convert _italic_ to <em>
+    html = html.replace(/(?<![_\w])_([^_]+)_(?![_\w])/g, '<em>$1</em>');
+    
+    // Convert *italic* to <em> (but not at start of line to avoid bullet conflicts)
+    html = html.replace(/(?<!^|\n|\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    
+    // Convert ~~strikethrough~~ to <del>
+    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    
+    // NOW restore all placeholders after formatting is complete
+    
+    // Restore code blocks with styling
+    codeBlockPlaceholders.forEach((block, index) => {
+      const placeholder = `${PH_START}CODEBLOCK${index}${PH_END}`;
+      const escapedCode = block.code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      html = html.replace(placeholder, `<pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; line-height: 1.4; margin: 8px 0;"><code>${escapedCode}</code></pre>`);
+    });
+    
+    // Restore inline code with styling
+    inlineCodePlaceholders.forEach((code, index) => {
+      const placeholder = `${PH_START}INLINECODE${index}${PH_END}`;
+      const escapedCode = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      html = html.replace(placeholder, `<code style="background: rgba(0,0,0,0.08); padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em;">${escapedCode}</code>`);
+    });
+    
+    // Restore markdown links as actual HTML links
+    linkPlaceholders.forEach((link, index) => {
+      const placeholder = `${PH_START}LINK${index}${PH_END}`;
+      const safeUrl = link.url.replace(/&amp;/g, '&'); // Unescape & in URLs
+      const safeText = link.text; // Text was already escaped
+      html = html.replace(placeholder, `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color: #4f7cff; text-decoration: underline; cursor: pointer;">${safeText}</a>`);
+    });
+    
+    // Restore plain URLs as clickable links
+    urlPlaceholders.forEach((url, index) => {
+      const placeholder = `${PH_START}URL${index}${PH_END}`;
+      const safeUrl = url.replace(/&amp;/g, '&'); // Unescape & in URLs
+      const displayUrl = url.length > 50 ? url.substring(0, 47) + '...' : url;
+      html = html.replace(placeholder, `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color: #4f7cff; text-decoration: underline; cursor: pointer;">${displayUrl}</a>`);
+    });
+    
+    // Split into lines for block-level processing
     const lines = html.split('\n');
     const processedLines = [];
-    let inList = false;
+    let inUnorderedList = false;
+    let inOrderedList = false;
+    let inBlockquote = false;
     
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i].trim();
       
-      // Check for bullet points (*, -, •)
-      const bulletMatch = line.match(/^[\*\-•]\s+(.+)$/);
+      // Check for headers (# ## ### #### ##### ######)
+      const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+      if (headerMatch) {
+        if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
+        if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
+        if (inBlockquote) { processedLines.push('</blockquote>'); inBlockquote = false; }
+        
+        const level = headerMatch[1].length;
+        const headerText = headerMatch[2];
+        const sizes = { 1: '1.6em', 2: '1.4em', 3: '1.2em', 4: '1.1em', 5: '1em', 6: '0.95em' };
+        const weights = { 1: '700', 2: '700', 3: '600', 4: '600', 5: '600', 6: '500' };
+        processedLines.push(`<h${level} style="font-size: ${sizes[level]}; font-weight: ${weights[level]}; margin: 12px 0 8px 0; color: #1a1a2e;">${headerText}</h${level}>`);
+        continue;
+      }
       
+      // Check for horizontal rule (---, ***, ___)
+      if (/^([-*_]){3,}$/.test(line)) {
+        if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
+        if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
+        if (inBlockquote) { processedLines.push('</blockquote>'); inBlockquote = false; }
+        processedLines.push('<hr style="border: none; border-top: 1px solid #d1d5db; margin: 12px 0;">');
+        continue;
+      }
+      
+      // Check for blockquote (>)
+      const blockquoteMatch = line.match(/^&gt;\s*(.*)$/);
+      if (blockquoteMatch) {
+        if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
+        if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
+        if (!inBlockquote) {
+          processedLines.push('<blockquote style="border-left: 4px solid #6b8afd; margin: 8px 0; padding: 8px 16px; background: rgba(107, 138, 253, 0.05); color: #4a5568; font-style: italic;">');
+          inBlockquote = true;
+        }
+        processedLines.push(`<p style="margin: 4px 0;">${blockquoteMatch[1] || '&nbsp;'}</p>`);
+        continue;
+      } else if (inBlockquote) {
+        processedLines.push('</blockquote>');
+        inBlockquote = false;
+      }
+      
+      // Check for ordered list (1. 2. 3. etc)
+      const orderedMatch = line.match(/^(\d+)\.\s+(.+)$/);
+      if (orderedMatch) {
+        if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
+        if (!inOrderedList) {
+          processedLines.push('<ol style="margin: 8px 0 8px 20px; padding-left: 0;">');
+          inOrderedList = true;
+        }
+        processedLines.push(`<li style="margin: 4px 0;">${orderedMatch[2]}</li>`);
+        continue;
+      }
+      
+      // Check for unordered list / bullet points (*, -, •)
+      const bulletMatch = line.match(/^[\*\-•]\s+(.+)$/);
       if (bulletMatch) {
-        if (!inList) {
+        if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
+        if (!inUnorderedList) {
           processedLines.push('<ul style="margin: 8px 0 8px 20px; padding-left: 0;">');
-          inList = true;
+          inUnorderedList = true;
         }
         processedLines.push(`<li style="margin: 4px 0;">${bulletMatch[1]}</li>`);
+        continue;
+      }
+      
+      // Close any open lists for non-list content
+      if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
+      if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
+      
+      if (line === '') {
+        // Empty line - add spacing
+        processedLines.push('<div style="height: 8px;"></div>');
       } else {
-        if (inList) {
-          processedLines.push('</ul>');
-          inList = false;
-        }
-        
-        if (line === '') {
-          // Empty line - add spacing
-          processedLines.push('<div style="height: 8px;"></div>');
-        } else {
-          // Regular paragraph
-          processedLines.push(`<p style="margin: 6px 0;">${line}</p>`);
-        }
+        // Regular paragraph
+        processedLines.push(`<p style="margin: 6px 0;">${line}</p>`);
       }
     }
     
-    // Close any open list
-    if (inList) {
-      processedLines.push('</ul>');
-    }
+    // Close any remaining open tags
+    if (inUnorderedList) processedLines.push('</ul>');
+    if (inOrderedList) processedLines.push('</ol>');
+    if (inBlockquote) processedLines.push('</blockquote>');
     
     return processedLines.join('');
   }
