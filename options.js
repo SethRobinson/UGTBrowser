@@ -2,6 +2,37 @@
 
 document.addEventListener('DOMContentLoaded', initializeOptionsPage);
 
+// --- Tab Navigation ---
+const tabButtons = document.querySelectorAll('.tab-button');
+const tabContents = document.querySelectorAll('.tab-content');
+
+function initializeTabs() {
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const targetTab = button.dataset.tab;
+      
+      // Update active states
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+      
+      button.classList.add('active');
+      document.getElementById(`tab-${targetTab}`).classList.add('active');
+      
+      // Save active tab to storage
+      chrome.storage.local.set({ activeTab: targetTab });
+    });
+  });
+  
+  // Restore last active tab
+  chrome.storage.local.get(['activeTab'], (items) => {
+    const savedTab = items.activeTab || 'translation';
+    const targetButton = document.querySelector(`.tab-button[data-tab="${savedTab}"]`);
+    if (targetButton) {
+      targetButton.click();
+    }
+  });
+}
+
 // --- DOM Element References ---
 const providerSelect = document.getElementById('providerSelect');
 const modelSelect = document.getElementById('modelSelect');
@@ -52,6 +83,28 @@ const elevenlabsModelSelect = document.getElementById('elevenlabsModel');
 const ttsTestTextInput = document.getElementById('ttsTestText');
 const testTTSBtn = document.getElementById('testTTSBtn');
 const ttsTestStatus = document.getElementById('ttsTestStatus');
+
+// TTS Provider Elements
+const ttsProviderRadios = document.querySelectorAll('input[name="ttsProvider"]');
+const elevenlabsSettingsSection = document.getElementById('elevenlabsSettingsSection');
+const googleTtsSettingsSection = document.getElementById('googleTtsSettingsSection');
+
+// Google TTS Elements
+const googleTtsApiKeyInput = document.getElementById('googleTtsApiKey');
+const googleTtsVoiceSelect = document.getElementById('googleTtsVoice');
+const googleTtsSpeakingRateInput = document.getElementById('googleTtsSpeakingRate');
+const googleTtsSpeakingRateValue = document.getElementById('googleTtsSpeakingRateValue');
+const googleTtsPitchInput = document.getElementById('googleTtsPitch');
+const googleTtsPitchValue = document.getElementById('googleTtsPitchValue');
+const googleTtsPitchWrapper = document.getElementById('googleTtsPitchWrapper');
+const googleTtsPitchNote = document.getElementById('googleTtsPitchNote');
+const googleTtsTestTextInput = document.getElementById('googleTtsTestText');
+const testGoogleTTSBtn = document.getElementById('testGoogleTTSBtn');
+const googleTtsTestStatus = document.getElementById('googleTtsTestStatus');
+
+// TTS Help Buttons
+const elevenlabsHelpBtn = document.getElementById('elevenlabsHelpBtn');
+const googleTtsHelpBtn = document.getElementById('googleTtsHelpBtn');
 
 // --- Modal Elements ---
 const helpModal = document.getElementById('helpModal');
@@ -119,6 +172,9 @@ const defaultPrompts = {
 
 // --- Initialization ---
 function initializeOptionsPage() {
+  // Initialize tabs
+  initializeTabs();
+  
   // Setup event listeners
   providerSelect.addEventListener('change', () => {
     // Restore the model for the newly selected provider
@@ -170,11 +226,50 @@ function initializeOptionsPage() {
     testTTSBtn.addEventListener('click', testTTSVoice);
   }
 
+  // Google TTS test button
+  if (testGoogleTTSBtn) {
+    testGoogleTTSBtn.addEventListener('click', testGoogleTTSVoice);
+  }
+
+  // TTS Provider switching
+  ttsProviderRadios.forEach(radio => {
+    radio.addEventListener('change', updateTTSProviderSection);
+  });
+
+  // Google TTS range slider updates
+  if (googleTtsSpeakingRateInput && googleTtsSpeakingRateValue) {
+    googleTtsSpeakingRateInput.addEventListener('input', () => {
+      googleTtsSpeakingRateValue.textContent = googleTtsSpeakingRateInput.value + 'x';
+    });
+  }
+  
+  if (googleTtsPitchInput && googleTtsPitchValue) {
+    googleTtsPitchInput.addEventListener('input', () => {
+      googleTtsPitchValue.textContent = googleTtsPitchInput.value;
+    });
+  }
+
+  // Google TTS voice change handler - update pitch slider availability and test text
+  if (googleTtsVoiceSelect) {
+    googleTtsVoiceSelect.addEventListener('change', () => {
+      updateGoogleTtsPitchAvailability();
+      updateGoogleTtsTestText();
+    });
+  }
+
+  // TTS Help buttons
+  if (elevenlabsHelpBtn) {
+    elevenlabsHelpBtn.addEventListener('click', () => openHelpModal('elevenlabsHelpBtn'));
+  }
+  if (googleTtsHelpBtn) {
+    googleTtsHelpBtn.addEventListener('click', () => openHelpModal('googleTtsHelpBtn'));
+  }
+
   // --- Help Modal Logic ---
   const helpContentMap = {
     customHelp: {
-      title: "Custom Language Prompt",
-      body: "<p>Enter any custom language prompt for the translation target. This allows for creative and flexible translation requests.</p>" +
+      title: "Custom Target Language",
+      body: "<p>Enter any custom target language prompt. This allows for creative and flexible translation requests.</p>" +
             "<p><strong>Examples:</strong></p>" +
             "<ul>" +
             "<li>'English, but everyone is talking like a pirate'</li>" +
@@ -183,6 +278,32 @@ function initializeOptionsPage() {
             "<li>'Translate to Spanish, and make it rhyme if possible.'</li>" +
             "</ul>" +
             "<p>Be creative! The LLM will do its best to follow your custom instructions for the target language.</p>"
+    },
+    elevenlabsHelpBtn: {
+      title: "How to Get an ElevenLabs API Key",
+      body: "<p>ElevenLabs provides ultra-realistic AI voice synthesis. Follow these steps to get your API key:</p>" +
+            "<ol>" +
+            "<li><strong>Create an account:</strong> Go to <a href='https://elevenlabs.io/' target='_blank' rel='noopener'>elevenlabs.io</a> and sign up for a free account.</li>" +
+            "<li><strong>Navigate to API Keys:</strong> After logging in, click your profile icon in the bottom-left corner, then select <strong>Profile + API key</strong>.</li>" +
+            "<li><strong>Generate a key:</strong> Click <strong>Create API Key</strong> and give it a name (e.g., 'UGTBrowser').</li>" +
+            "<li><strong>Copy the key:</strong> Copy your new API key and paste it into the field above.</li>" +
+            "</ol>" +
+            "<p><strong>Direct link:</strong> <a href='https://elevenlabs.io/app/settings/api-keys' target='_blank' rel='noopener'>elevenlabs.io/app/settings/api-keys</a></p>" +
+            "<p><strong>Note:</strong> ElevenLabs offers a free tier with limited characters per month. Paid plans provide more quota and additional features.</p>"
+    },
+    googleTtsHelpBtn: {
+      title: "How to Get a Google Cloud TTS API Key",
+      body: "<p>Google Cloud Text-to-Speech provides high-quality voices including Studio and Neural2. Follow these steps:</p>" +
+            "<ol>" +
+            "<li><strong>Create a Google Cloud account:</strong> Go to <a href='https://console.cloud.google.com/' target='_blank' rel='noopener'>console.cloud.google.com</a> and sign in with your Google account.</li>" +
+            "<li><strong>Create a new project:</strong> Click the project dropdown at the top, then <strong>New Project</strong>. Give it a name (e.g., 'UGTBrowser TTS').</li>" +
+            "<li><strong>Enable the Text-to-Speech API:</strong> Go to <a href='https://console.cloud.google.com/apis/library/texttospeech.googleapis.com' target='_blank' rel='noopener'>APIs & Services > Library</a>, search for 'Text-to-Speech API', and click <strong>Enable</strong>.</li>" +
+            "<li><strong>Create API credentials:</strong> Go to <a href='https://console.cloud.google.com/apis/credentials' target='_blank' rel='noopener'>APIs & Services > Credentials</a>, click <strong>Create Credentials</strong>, then select <strong>API Key</strong>.</li>" +
+            "<li><strong>Copy the key:</strong> Copy your new API key and paste it into the field above.</li>" +
+            "<li><strong>(Recommended) Restrict the key:</strong> Click on your API key and restrict it to only the Text-to-Speech API for security.</li>" +
+            "</ol>" +
+            "<p><strong>Direct link to enable API:</strong> <a href='https://console.cloud.google.com/apis/library/texttospeech.googleapis.com' target='_blank' rel='noopener'>Enable Text-to-Speech API</a></p>" +
+            "<p><strong>Pricing:</strong> Google Cloud offers $300 free credits for new users. Standard usage costs apply after that. Studio voices are premium-priced.</p>"
     },
     creativeTaskHelpBtn: {
       title: "Optional Creative Task",
@@ -280,10 +401,16 @@ function restoreOptions() {
     lastResponseInfo: null,
     lastResponseContent: null,
     // TTS settings
+    ttsProvider: 'elevenlabs',
     elevenlabsApiKey: '',
     elevenlabsVoice: '21m00Tcm4TlvDq8ikWAM', // Default to Rachel
     elevenlabsCustomVoiceId: '',
-    elevenlabsModel: 'eleven_multilingual_v2'
+    elevenlabsModel: 'eleven_multilingual_v2',
+    // Google TTS settings
+    googleTtsApiKey: '',
+    googleTtsVoice: 'en-US-Studio-O',
+    googleTtsSpeakingRate: 1.0,
+    googleTtsPitch: 0
   };
 
   // Add provider prompt template keys to keysToGet
@@ -376,6 +503,15 @@ function restoreOptions() {
     // based on items.selectedProvider and its stored `${items.selectedProvider}Prompt`
 
     // Restore TTS settings
+    // TTS Provider
+    const ttsProvider = items.ttsProvider || 'elevenlabs';
+    const ttsProviderRadio = document.querySelector(`input[name="ttsProvider"][value="${ttsProvider}"]`);
+    if (ttsProviderRadio) {
+      ttsProviderRadio.checked = true;
+    }
+    updateTTSProviderSection();
+
+    // ElevenLabs settings
     if (elevenlabsApiKeyInput) {
       elevenlabsApiKeyInput.value = items.elevenlabsApiKey || '';
     }
@@ -388,6 +524,28 @@ function restoreOptions() {
     if (elevenlabsModelSelect) {
       elevenlabsModelSelect.value = items.elevenlabsModel || 'eleven_multilingual_v2';
     }
+
+    // Google TTS settings
+    if (googleTtsApiKeyInput) {
+      googleTtsApiKeyInput.value = items.googleTtsApiKey || '';
+    }
+    if (googleTtsVoiceSelect) {
+      googleTtsVoiceSelect.value = items.googleTtsVoice || 'en-US-Studio-O';
+    }
+    if (googleTtsSpeakingRateInput) {
+      googleTtsSpeakingRateInput.value = items.googleTtsSpeakingRate || 1.0;
+      if (googleTtsSpeakingRateValue) {
+        googleTtsSpeakingRateValue.textContent = (items.googleTtsSpeakingRate || 1.0) + 'x';
+      }
+    }
+    if (googleTtsPitchInput) {
+      googleTtsPitchInput.value = items.googleTtsPitch || 0;
+      if (googleTtsPitchValue) {
+        googleTtsPitchValue.textContent = items.googleTtsPitch || 0;
+      }
+    }
+    updateGoogleTtsPitchAvailability();
+    updateGoogleTtsTestText();
 
     fetchLastLLMData();
   });
@@ -424,11 +582,19 @@ function saveOptions() {
   const customLangText = customLanguageInput.value.trim();
 
   // Get TTS settings
+  const ttsProvider = document.querySelector('input[name="ttsProvider"]:checked')?.value || 'elevenlabs';
   const elevenlabsApiKey = elevenlabsApiKeyInput ? elevenlabsApiKeyInput.value.trim() : '';
   const elevenlabsVoice = elevenlabsVoiceSelect ? elevenlabsVoiceSelect.value : '21m00Tcm4TlvDq8ikWAM';
   const elevenlabsVoiceName = elevenlabsVoiceSelect ? elevenlabsVoiceSelect.options[elevenlabsVoiceSelect.selectedIndex]?.text.split(' (')[0] : 'Rachel';
   const elevenlabsCustomVoiceId = elevenlabsCustomVoiceIdInput ? elevenlabsCustomVoiceIdInput.value.trim() : '';
   const elevenlabsModel = elevenlabsModelSelect ? elevenlabsModelSelect.value : 'eleven_multilingual_v2';
+  
+  // Google TTS settings
+  const googleTtsApiKey = googleTtsApiKeyInput ? googleTtsApiKeyInput.value.trim() : '';
+  const googleTtsVoice = googleTtsVoiceSelect ? googleTtsVoiceSelect.value : 'en-US-Studio-O';
+  const googleTtsVoiceName = googleTtsVoiceSelect ? googleTtsVoiceSelect.options[googleTtsVoiceSelect.selectedIndex]?.text : 'English (US) - Studio O (female)';
+  const googleTtsSpeakingRate = googleTtsSpeakingRateInput ? parseFloat(googleTtsSpeakingRateInput.value) : 1.0;
+  const googleTtsPitch = googleTtsPitchInput ? parseFloat(googleTtsPitchInput.value) : 0;
 
   const settingsToSave = {
     selectedProvider: provider,
@@ -450,11 +616,18 @@ function saveOptions() {
     targetLanguage: standardLanguageText,
     customLanguage: customLangText,
     // TTS settings
+    ttsProvider: ttsProvider,
     elevenlabsApiKey: elevenlabsApiKey,
     elevenlabsVoice: elevenlabsVoice,
     elevenlabsVoiceName: elevenlabsVoiceName,
     elevenlabsCustomVoiceId: elevenlabsCustomVoiceId,
     elevenlabsModel: elevenlabsModel,
+    // Google TTS settings
+    googleTtsApiKey: googleTtsApiKey,
+    googleTtsVoice: googleTtsVoice,
+    googleTtsVoiceName: googleTtsVoiceName,
+    googleTtsSpeakingRate: googleTtsSpeakingRate,
+    googleTtsPitch: googleTtsPitch,
     settings: { 
       provider: provider, 
       model: finalModel, 
@@ -558,6 +731,90 @@ function updateLanguageSectionState() {
     languageSelect.disabled = true;
   }
 }
+
+function updateTTSProviderSection() {
+  const selectedProvider = document.querySelector('input[name="ttsProvider"]:checked')?.value || 'elevenlabs';
+  
+  if (elevenlabsSettingsSection) {
+    elevenlabsSettingsSection.style.display = selectedProvider === 'elevenlabs' ? 'block' : 'none';
+  }
+  if (googleTtsSettingsSection) {
+    googleTtsSettingsSection.style.display = selectedProvider === 'google' ? 'block' : 'none';
+  }
+}
+
+// Check if Google TTS voice supports pitch adjustment
+function googleTtsVoiceSupportsPitch(voiceId) {
+  if (!voiceId) return true;
+  const lowerVoice = voiceId.toLowerCase();
+  // Studio and Journey voices don't support pitch
+  return !lowerVoice.includes('studio') && !lowerVoice.includes('journey');
+}
+
+function updateGoogleTtsPitchAvailability() {
+  const voiceId = googleTtsVoiceSelect ? googleTtsVoiceSelect.value : '';
+  const supportsPitch = googleTtsVoiceSupportsPitch(voiceId);
+  
+  if (googleTtsPitchInput) {
+    googleTtsPitchInput.disabled = !supportsPitch;
+    googleTtsPitchInput.style.opacity = supportsPitch ? '1' : '0.5';
+  }
+  if (googleTtsPitchNote) {
+    googleTtsPitchNote.style.display = supportsPitch ? 'none' : 'block';
+  }
+}
+
+// Sample test phrases for different languages (shared between TTS providers)
+const ttsTestPhrases = {
+  'en': 'Hello! This is a test of the text to speech system.',
+  'english': 'Hello! This is a test of the text to speech system.',
+  'ja': 'こんにちは！これはテキスト読み上げシステムのテストです。',
+  'japanese': 'こんにちは！これはテキスト読み上げシステムのテストです。',
+  'ko': '안녕하세요! 이것은 텍스트 음성 변환 시스템 테스트입니다.',
+  'korean': '안녕하세요! 이것은 텍스트 음성 변환 시스템 테스트입니다.',
+  'cmn': '你好！这是文字转语音系统的测试。',
+  'zh': '你好！这是文字转语音系统的测试。',
+  'chinese': '你好！这是文字转语音系统的测试。',
+  'de': 'Hallo! Dies ist ein Test des Text-zu-Sprache-Systems.',
+  'german': 'Hallo! Dies ist ein Test des Text-zu-Sprache-Systems.',
+  'fr': 'Bonjour! Ceci est un test du système de synthèse vocale.',
+  'french': 'Bonjour! Ceci est un test du système de synthèse vocale.',
+  'es': '¡Hola! Esta es una prueba del sistema de texto a voz.',
+  'spanish': '¡Hola! Esta es una prueba del sistema de texto a voz.',
+  'it': 'Ciao! Questo è un test del sistema di sintesi vocale.',
+  'italian': 'Ciao! Questo è un test del sistema di sintesi vocale.',
+  'pt': 'Olá! Este é um teste do sistema de conversão de texto em fala.',
+  'portuguese': 'Olá! Este é um teste do sistema de conversão de texto em fala.',
+  'ru': 'Привет! Это тест системы преобразования текста в речь.',
+  'russian': 'Привет! Это тест системы преобразования текста в речь.',
+  'nl': 'Hallo! Dit is een test van het tekst-naar-spraak systeem.',
+  'dutch': 'Hallo! Dit is een test van het tekst-naar-spraak systeem.',
+  'ar': 'مرحبا! هذا اختبار لنظام تحويل النص إلى كلام.',
+  'arabic': 'مرحبا! هذا اختبار لنظام تحويل النص إلى كلام.',
+  'hi': 'नमस्ते! यह टेक्स्ट टू स्पीच सिस्टम का परीक्षण है।',
+  'hindi': 'नमस्ते! यह टेक्स्ट टू स्पीच सिस्टम का परीक्षण है।'
+};
+
+// Get test phrase for a language code or name
+function getTestPhraseForLanguage(langKey) {
+  if (!langKey) return ttsTestPhrases['en'];
+  const key = langKey.toLowerCase().replace(/[^a-z]/g, '');
+  return ttsTestPhrases[key] || ttsTestPhrases['en'];
+}
+
+// Extract language code from Google TTS voice ID (e.g., "ja" from "ja-JP-Neural2-B")
+function getLanguageFromGoogleVoiceId(voiceId) {
+  if (!voiceId) return 'en';
+  return voiceId.split('-')[0].toLowerCase();
+}
+
+function updateGoogleTtsTestText() {
+  if (!googleTtsVoiceSelect || !googleTtsTestTextInput) return;
+  
+  const langPrefix = getLanguageFromGoogleVoiceId(googleTtsVoiceSelect.value);
+  googleTtsTestTextInput.value = getTestPhraseForLanguage(langPrefix);
+}
+
 
 function resetPromptToDefault() {
   const provider = providerSelect.value;
@@ -781,5 +1038,117 @@ function showTTSTestStatus(message, type) {
     ttsTestStatus.classList.add('tts-test-success');
   } else if (type === 'loading') {
     ttsTestStatus.classList.add('tts-test-loading');
+  }
+}
+
+// --- Google TTS Test Functions ---
+let googleTtsTestAudio = null;
+
+function testGoogleTTSVoice() {
+  const apiKey = googleTtsApiKeyInput ? googleTtsApiKeyInput.value.trim() : '';
+  const voiceId = googleTtsVoiceSelect ? googleTtsVoiceSelect.value : 'en-US-Studio-O';
+  const speakingRate = googleTtsSpeakingRateInput ? parseFloat(googleTtsSpeakingRateInput.value) : 1.0;
+  const pitch = googleTtsPitchInput ? parseFloat(googleTtsPitchInput.value) : 0;
+  const testText = googleTtsTestTextInput ? googleTtsTestTextInput.value.trim() : 'Hello! This is a test.';
+  
+  if (!apiKey) {
+    showGoogleTTSTestStatus('Please enter your Google Cloud API key first.', 'error');
+    return;
+  }
+  
+  if (!testText) {
+    showGoogleTTSTestStatus('Please enter some text to test.', 'error');
+    return;
+  }
+  
+  // Stop any currently playing test audio
+  if (googleTtsTestAudio) {
+    googleTtsTestAudio.pause();
+    googleTtsTestAudio = null;
+  }
+  
+  // Update UI
+  showGoogleTTSTestStatus('Generating speech...', 'loading');
+  testGoogleTTSBtn.disabled = true;
+  testGoogleTTSBtn.textContent = 'Testing...';
+  
+  // Send test request to background script
+  chrome.runtime.sendMessage({
+    type: 'TEST_GOOGLE_TTS',
+    payload: {
+      text: testText,
+      voiceId: voiceId,
+      apiKey: apiKey,
+      speakingRate: speakingRate,
+      pitch: pitch
+    }
+  }, (response) => {
+    testGoogleTTSBtn.disabled = false;
+    testGoogleTTSBtn.textContent = 'Test Voice';
+    
+    if (chrome.runtime.lastError) {
+      showGoogleTTSTestStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+      return;
+    }
+    
+    if (response && response.success) {
+      showGoogleTTSTestStatus('Playing...', 'success');
+      playGoogleTTSTestAudio(response.audio, response.mimeType);
+    } else {
+      showGoogleTTSTestStatus('Error: ' + (response?.error || 'Unknown error'), 'error');
+    }
+  });
+}
+
+function playGoogleTTSTestAudio(base64Audio, mimeType) {
+  try {
+    // Convert base64 to blob
+    const binaryString = atob(base64Audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType || 'audio/mp3' });
+    const audioUrl = URL.createObjectURL(blob);
+    
+    // Create and play audio
+    googleTtsTestAudio = new Audio(audioUrl);
+    
+    googleTtsTestAudio.addEventListener('ended', () => {
+      URL.revokeObjectURL(audioUrl);
+      showGoogleTTSTestStatus('Test complete!', 'success');
+      googleTtsTestAudio = null;
+    });
+    
+    googleTtsTestAudio.addEventListener('error', (e) => {
+      console.error('Audio playback error:', e);
+      URL.revokeObjectURL(audioUrl);
+      showGoogleTTSTestStatus('Playback error', 'error');
+      googleTtsTestAudio = null;
+    });
+    
+    googleTtsTestAudio.play().catch(err => {
+      console.error('Error playing test audio:', err);
+      showGoogleTTSTestStatus('Playback error: ' + err.message, 'error');
+    });
+    
+  } catch (e) {
+    console.error('Error creating audio from base64:', e);
+    showGoogleTTSTestStatus('Error creating audio', 'error');
+  }
+}
+
+function showGoogleTTSTestStatus(message, type) {
+  if (!googleTtsTestStatus) return;
+  
+  googleTtsTestStatus.textContent = message;
+  googleTtsTestStatus.className = 'tts-test-status';
+  
+  if (type === 'error') {
+    googleTtsTestStatus.classList.add('tts-test-error');
+  } else if (type === 'success') {
+    googleTtsTestStatus.classList.add('tts-test-success');
+  } else if (type === 'loading') {
+    googleTtsTestStatus.classList.add('tts-test-loading');
   }
 } 

@@ -12,257 +12,453 @@
         <img src="icon256.png" alt="UGTBrowser Logo" class="header-logo">
         <h1>UGTBrowser Settings</h1>
       </header>
-      <div id="aboutSection">
-        <h2>About UGTBrowser</h2>
-        <p>
-          UGTBrowser is an extension for inline AI translation, created by Seth A. Robinson.
-        </p>
-        <p>
-          Connect with Seth:
-          <a href="https://www.rtsoft.com/" target="_blank" title="RTsoft Homepage" rel="noopener">Homepage</a> |
-          <a href="https://twitter.com/rtsoft" target="_blank" title="RTsoft on Twitter" rel="noopener">Twitter</a> |
-          <a href="https://bsky.app/profile/rtsoft.com" target="_blank" title="RTsoft on Bluesky" rel="noopener">Bluesky</a>
-        </p>
-      </div>
-      <div id="usageInstructions">
-        <h2>How to Translate</h2>
-        <p>
-          To translate text on any webpage:
-          <ol>
-            <li>Highlight the text you want to translate.</li>
-            <li>Right-click on the highlighted text.</li>
-            <li>Select the Translate to (language) with (provider) (UGTBrowser) option from the context menu.</li>
-          </ol>
-        </p>
-      </div>
 
-      <div id="githubSection">
-        <h2>Comments or problems? Check out the <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" title="UGTBrowser on GitHub" rel="noopener">UGTBrowser github</a>.</h2>
+      <!-- Tab Navigation -->
+      <div class="tab-navigation">
+        <button class="tab-button active" data-tab="translation">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
+          </svg>
+          Translation
+        </button>
+        <button class="tab-button" data-tab="audio">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          Audio
+        </button>
+        <button class="tab-button" data-tab="about">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4"/>
+            <path d="M12 8h.01"/>
+          </svg>
+          About & Help
+        </button>
       </div>
 
       <div class="settings-panel">
-        <div class="settings-section">
-          <h2>Translation Settings</h2>
-          <div class="option-group">
-            <label>
-              <input type="radio" name="languageMode" value="standard" checked>
-              Standard Language
-            </label>
+        <!-- Translation Tab Content -->
+        <div id="tab-translation" class="tab-content active">
+          <div class="settings-section">
+            <h2>Language Settings</h2>
+            <div class="option-group">
+              <label>
+                <input type="radio" name="languageMode" value="standard" checked>
+                Standard Target Language
+              </label>
             <div id="standardLanguageSection">
-              <label for="language">Select Language:</label>
-              <select id="language">
-                <option value="en">English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="ja">Japanese</option>
-                <option value="ko">Korean</option>
-                <option value="zh-CN">Chinese (Simplified)</option>
-                <option value="it">Italian</option>
-                <option value="pt">Portuguese</option>
-                <option value="ru">Russian</option>
-                <option value="ar">Arabic</option>
-                <option value="hi">Hindi</option>
-                <option value="nl">Dutch</option>
-                <option value="sv">Swedish</option>
-                <option value="fi">Finnish</option>
-                <option value="da">Danish</option>
-                <option value="no">Norwegian</option>
-                <option value="pl">Polish</option>
-                <option value="tr">Turkish</option>
-                <option value="el">Greek</option>
-                <option value="he">Hebrew</option>
-                <option value="id">Indonesian</option>
-                <option value="ms">Malay</option>
-                <option value="th">Thai</option>
-                <option value="vi">Vietnamese</option>
-                <option value="cs">Czech</option>
-                <option value="hu">Hungarian</option>
-                <option value="ro">Romanian</option>
-                <option value="sk">Slovak</option>
-                <option value="uk">Ukrainian</option>
-                <!-- Add more languages as needed -->
+              <label for="language">Select Target Language:</label>
+                <select id="language">
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                  <option value="zh-CN">Chinese (Simplified)</option>
+                  <option value="it">Italian</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="ru">Russian</option>
+                  <option value="ar">Arabic</option>
+                  <option value="hi">Hindi</option>
+                  <option value="nl">Dutch</option>
+                  <option value="sv">Swedish</option>
+                  <option value="fi">Finnish</option>
+                  <option value="da">Danish</option>
+                  <option value="no">Norwegian</option>
+                  <option value="pl">Polish</option>
+                  <option value="tr">Turkish</option>
+                  <option value="el">Greek</option>
+                  <option value="he">Hebrew</option>
+                  <option value="id">Indonesian</option>
+                  <option value="ms">Malay</option>
+                  <option value="th">Thai</option>
+                  <option value="vi">Vietnamese</option>
+                  <option value="cs">Czech</option>
+                  <option value="hu">Hungarian</option>
+                  <option value="ro">Romanian</option>
+                  <option value="sk">Slovak</option>
+                  <option value="uk">Ukrainian</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="option-group custom-language-option-group">
+              <label>
+                <input type="radio" name="languageMode" value="custom">
+                Custom Target Language
+              </label>
+              <div id="customLanguageSection">
+                <input type="text" id="customLanguage" placeholder="e.g., Klingon">
+                <span id="customHelp" class="help-icon">?</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section" id="creativeTaskSection">
+            <fieldset>
+              <legend>Creative Task</legend>
+              <div class="form-group">
+                <label for="creativeTaskTextarea">Optional Creative Task: <span class="help-icon" id="creativeTaskHelpBtn">?</span></label>
+                <textarea id="creativeTaskTextarea" class="form-control" rows="3" placeholder="e.g., Make the translation sound like a pirate."></textarea>
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="settings-section">
+            <h2>LLM Provider</h2>
+            <div class="form-group">
+              <label for="providerSelect">Provider:</label>
+              <select id="providerSelect" class="form-control">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic Claude</option>
+                <option value="gemini">Google Gemini</option>
               </select>
             </div>
+
+            <div class="form-group" id="modelWrapper">
+              <label for="modelSelect">Model:</label>
+              <select id="modelSelect" class="form-control"></select>
+              <input type="text" id="customModel" class="form-control" placeholder="Or enter custom model name (optional)" />
+            </div>
+
+            <div class="form-group" id="openaiThinkingWrapper" style="display: none;">
+              <label>
+                <input type="checkbox" id="openaiThinkingCheckbox" />
+                Allow Thinking (slower)
+              </label>
+              <div class="help-text" style="font-size: 12px; color: #666; margin-top: 4px;">
+                Enables extended reasoning for GPT-5 series models. When disabled, reasoning effort is set to 'none' for faster responses.
+              </div>
+            </div>
+
+            <div class="form-group" id="geminiThinkingWrapper" style="display: none;">
+              <label>
+                <input type="checkbox" id="geminiThinkingCheckbox" />
+                Allow Thinking (slower)
+              </label>
+              <div class="help-text" style="font-size: 12px; color: #666; margin-top: 4px;">
+                Enables extended reasoning for Gemini 2.5 and 3.x models. When disabled, thinking is minimized to reduce latency and cost.
+              </div>
+            </div>
+            
+            <div class="form-group" id="openaiKeyWrapper">
+              <label for="openaiApiKey">OpenAI API Key:</label>
+              <input type="password" id="openaiApiKey" class="form-control" placeholder="Enter OpenAI API key" />
+              <div class="api-key-help" id="openaiApiKeyHelp">
+                Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>.
+              </div>
+            </div>
+            
+            <div class="form-group" id="anthropicKeyWrapper">
+              <label for="anthropicApiKey">Anthropic API Key:</label>
+              <input type="password" id="anthropicApiKey" class="form-control" placeholder="Enter Anthropic API key" />
+              <div class="api-key-help" id="anthropicApiKeyHelp">
+                Obtain your Anthropic API key from the <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Console</a> (Account Settings).
+              </div>
+            </div>
+            
+            <div class="form-group" id="geminiKeyWrapper">
+              <label for="geminiApiKey">Google Gemini API Key:</label>
+              <input type="password" id="geminiApiKey" class="form-control" placeholder="Enter Google Gemini API key" />
+              <div class="api-key-help" id="geminiApiKeyHelp">
+                Generate your Google Gemini API key via <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a>.
+              </div>
+            </div>
+
+            <div class="form-group" id="promptSection">
+              <div class="prompt-header">
+                <label for="promptTemplate">Prompt Template: <span class="help-icon" id="mainPromptHelpBtn">?</span></label>
+                <button id="resetPromptBtn" class="small-button">Reset to Default</button>
+              </div>
+              <p class="help-text">Use {{text}} for the text to translate and {{target}} for the target language. Ensure your prompt asks the LLM to output translations wrapped in &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt; tags for each segment.</p>
+              <textarea id="promptTemplate" class="form-control" rows="4"></textarea>
+            </div>
           </div>
 
-          <div class="option-group custom-language-option-group">
-            <label>
-              <input type="radio" name="languageMode" value="custom">
-              Custom Language
-            </label>
-            <div id="customLanguageSection">
-              <input type="text" id="customLanguage" placeholder="e.g., Klingon">
-              <span id="customHelp" class="help-icon">?</span>
+          <!-- LLM Debug Section -->
+          <div class="settings-section">
+            <h2>LLM Debug</h2>
+            <p class="help-text">View the last LLM request and response for debugging purposes.</p>
+            <button id="toggleDebugBtn" class="small-button">Show Debug Info</button>
+            <div id="llmDebugContent">
+              <div class="debug-controls">
+                <button id="refreshLLMDataBtn" class="small-button">Refresh Data</button>
+              </div>
+              
+              <div class="form-group">
+                <label for="lastRequestInfo">Last Request Info:</label>
+                <div id="lastRequestInfo" class="debug-info">No request data available</div>
+              </div>
+              
+              <div class="form-group">
+                <label for="lastRequestPrompt">Last Request Prompt:</label>
+                <textarea id="lastRequestPrompt" class="form-control debug-textarea" rows="6" readonly></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="lastResponseInfo">Last Response Info:</label>
+                <div id="lastResponseInfo" class="debug-info">No response data available</div>
+              </div>
+              
+              <div class="form-group">
+                <label for="lastResponseContent">Last Response Content:</label>
+                <textarea id="lastResponseContent" class="form-control debug-textarea" rows="10" readonly></textarea>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="form-section" id="creativeTaskSection">
-          <fieldset>
-            <legend>Creative Task</legend>
-            <div class="form-group">
-              <label for="creativeTaskTextarea">Optional Creative Task: <span class="help-icon" id="creativeTaskHelpBtn">?</span></label>
-              <textarea id="creativeTaskTextarea" class="form-control" rows="3" placeholder="e.g., Make the translation sound like a pirate."></textarea>
+        <!-- Audio Tab Content -->
+        <div id="tab-audio" class="tab-content">
+          <!-- TTS Provider Selection -->
+          <div class="settings-section">
+            <h2>Text-to-Speech Provider</h2>
+            <p class="section-intro">Choose your preferred text-to-speech provider. After translating, a speaker icon will appear that you can click to hear the translation.</p>
+            
+            <div class="tts-provider-cards">
+              <label class="tts-provider-card">
+                <input type="radio" name="ttsProvider" value="elevenlabs" checked>
+                <div class="tts-provider-card-content">
+                  <span class="tts-provider-name">ElevenLabs</span>
+                  <span class="tts-provider-desc">Ultra-realistic voices, 29+ languages</span>
+                </div>
+              </label>
+              <label class="tts-provider-card">
+                <input type="radio" name="ttsProvider" value="google">
+                <div class="tts-provider-card-content">
+                  <span class="tts-provider-name">Google Cloud TTS</span>
+                  <span class="tts-provider-desc">Studio & Neural2 voices, 40+ languages</span>
+                </div>
+              </label>
             </div>
-          </fieldset>
+          </div>
+
+          <!-- ElevenLabs Settings -->
+          <div class="settings-section tts-provider-section" id="elevenlabsSettingsSection">
+            <h2>ElevenLabs Settings <span class="help-icon" id="elevenlabsHelpBtn">?</span></h2>
+            
+            <div class="form-group" id="elevenlabsKeyWrapper">
+              <label for="elevenlabsApiKey">ElevenLabs API Key:</label>
+              <input type="password" id="elevenlabsApiKey" class="form-control" placeholder="Enter ElevenLabs API key" />
+            </div>
+            
+            <div class="form-group">
+              <label for="elevenlabsVoice">Voice:</label>
+              <select id="elevenlabsVoice" class="form-control">
+                <option value="21m00Tcm4TlvDq8ikWAM">Rachel (female, narrative)</option>
+                <option value="29vD33N1CtxCmqQRPOHJ">Drew (male, news)</option>
+                <option value="2EiwWnXFnvU5JabPnv8n">Clyde (male, war veteran)</option>
+                <option value="5Q0t7uMcjvnagumLfvZi">Paul (male, news)</option>
+                <option value="AZnzlk1XvdvUeBnXmlld">Domi (female, strong)</option>
+                <option value="CYw3kZ02Hs0563khs1Fj">Dave (male, conversational)</option>
+                <option value="D38z5RcWu1voky8WS1ja">Fin (male, sailor)</option>
+                <option value="EXAVITQu4vr4xnSDxMaL">Sarah (female, soft news)</option>
+                <option value="ErXwobaYiN019PkySvjV">Antoni (male, well-rounded)</option>
+                <option value="GBv7mTt0atIp3Br8iCZE">Thomas (male, calm)</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="elevenlabsCustomVoiceId">Custom Voice ID (optional):</label>
+              <input type="text" id="elevenlabsCustomVoiceId" class="form-control" placeholder="Enter custom voice ID to override selection above" />
+              <div class="help-text">If you have a custom or cloned voice, enter its ID here. This will override the voice selection above.</div>
+            </div>
+            
+            <div class="form-group">
+              <label for="elevenlabsModel">Model:</label>
+              <select id="elevenlabsModel" class="form-control">
+                <option value="eleven_multilingual_v2">Multilingual v2 (best quality, 29 languages)</option>
+                <option value="eleven_turbo_v2_5">Turbo v2.5 (faster, 32 languages)</option>
+                <option value="eleven_turbo_v2">Turbo v2 (fast, English only)</option>
+                <option value="eleven_monolingual_v1">Monolingual v1 (English only)</option>
+              </select>
+            </div>
+            
+            <div class="form-group tts-test-group">
+              <label for="ttsTestText">Test Text:</label>
+              <input type="text" id="ttsTestText" class="form-control" value="Hello! This is a test of the text to speech system." placeholder="Enter text to test" />
+              <div class="tts-test-button-row">
+                <button id="testTTSBtn" class="primary-button">Test Voice</button>
+                <span id="ttsTestStatus" class="tts-test-status"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Google Cloud TTS Settings -->
+          <div class="settings-section tts-provider-section" id="googleTtsSettingsSection" style="display: none;">
+            <h2>Google Cloud TTS Settings <span class="help-icon" id="googleTtsHelpBtn">?</span></h2>
+            
+            <div class="form-group">
+              <label for="googleTtsApiKey">Google Cloud API Key:</label>
+              <input type="password" id="googleTtsApiKey" class="form-control" placeholder="Enter Google Cloud API key" />
+            </div>
+            
+            <div class="form-group">
+              <label for="googleTtsVoice">Voice:</label>
+              <select id="googleTtsVoice" class="form-control">
+                <optgroup label="Studio Voices (Most Natural)">
+                  <option value="en-US-Studio-O">English (US) - Studio O (female)</option>
+                  <option value="en-US-Studio-Q">English (US) - Studio Q (male)</option>
+                  <option value="en-GB-Studio-B">English (UK) - Studio B (male)</option>
+                  <option value="en-GB-Studio-C">English (UK) - Studio C (female)</option>
+                </optgroup>
+                <optgroup label="Journey Voices (Conversational)">
+                  <option value="en-US-Journey-D">English (US) - Journey D (male)</option>
+                  <option value="en-US-Journey-F">English (US) - Journey F (female)</option>
+                  <option value="en-US-Journey-O">English (US) - Journey O (female)</option>
+                </optgroup>
+                <optgroup label="Neural2 Voices (Natural)">
+                  <option value="en-US-Neural2-A">English (US) - Neural2 A (male)</option>
+                  <option value="en-US-Neural2-C">English (US) - Neural2 C (female)</option>
+                  <option value="en-US-Neural2-D">English (US) - Neural2 D (male)</option>
+                  <option value="en-US-Neural2-F">English (US) - Neural2 F (female)</option>
+                  <option value="en-US-Neural2-H">English (US) - Neural2 H (female)</option>
+                  <option value="en-US-Neural2-J">English (US) - Neural2 J (male)</option>
+                </optgroup>
+                <optgroup label="Japanese">
+                  <option value="ja-JP-Neural2-B">Japanese - Neural2 B (female)</option>
+                  <option value="ja-JP-Neural2-C">Japanese - Neural2 C (male)</option>
+                  <option value="ja-JP-Neural2-D">Japanese - Neural2 D (male)</option>
+                  <option value="ja-JP-Wavenet-A">Japanese - Wavenet A (female)</option>
+                  <option value="ja-JP-Wavenet-B">Japanese - Wavenet B (female)</option>
+                  <option value="ja-JP-Wavenet-C">Japanese - Wavenet C (male)</option>
+                  <option value="ja-JP-Wavenet-D">Japanese - Wavenet D (male)</option>
+                </optgroup>
+                <optgroup label="Korean">
+                  <option value="ko-KR-Neural2-A">Korean - Neural2 A (female)</option>
+                  <option value="ko-KR-Neural2-B">Korean - Neural2 B (female)</option>
+                  <option value="ko-KR-Neural2-C">Korean - Neural2 C (male)</option>
+                  <option value="ko-KR-Wavenet-A">Korean - Wavenet A (female)</option>
+                  <option value="ko-KR-Wavenet-B">Korean - Wavenet B (female)</option>
+                  <option value="ko-KR-Wavenet-C">Korean - Wavenet C (male)</option>
+                  <option value="ko-KR-Wavenet-D">Korean - Wavenet D (male)</option>
+                </optgroup>
+                <optgroup label="Chinese (Mandarin)">
+                  <option value="cmn-CN-Neural2-A">Chinese - Neural2 A (female)</option>
+                  <option value="cmn-CN-Neural2-B">Chinese - Neural2 B (male)</option>
+                  <option value="cmn-CN-Neural2-C">Chinese - Neural2 C (male)</option>
+                  <option value="cmn-CN-Neural2-D">Chinese - Neural2 D (female)</option>
+                  <option value="cmn-CN-Wavenet-A">Chinese - Wavenet A (female)</option>
+                  <option value="cmn-CN-Wavenet-B">Chinese - Wavenet B (male)</option>
+                  <option value="cmn-CN-Wavenet-C">Chinese - Wavenet C (male)</option>
+                  <option value="cmn-CN-Wavenet-D">Chinese - Wavenet D (female)</option>
+                </optgroup>
+                <optgroup label="German">
+                  <option value="de-DE-Neural2-B">German - Neural2 B (male)</option>
+                  <option value="de-DE-Neural2-C">German - Neural2 C (female)</option>
+                  <option value="de-DE-Neural2-D">German - Neural2 D (male)</option>
+                  <option value="de-DE-Neural2-F">German - Neural2 F (female)</option>
+                </optgroup>
+                <optgroup label="French">
+                  <option value="fr-FR-Neural2-A">French - Neural2 A (female)</option>
+                  <option value="fr-FR-Neural2-B">French - Neural2 B (male)</option>
+                  <option value="fr-FR-Neural2-C">French - Neural2 C (female)</option>
+                  <option value="fr-FR-Neural2-D">French - Neural2 D (male)</option>
+                </optgroup>
+                <optgroup label="Spanish">
+                  <option value="es-ES-Neural2-A">Spanish (Spain) - Neural2 A (female)</option>
+                  <option value="es-ES-Neural2-B">Spanish (Spain) - Neural2 B (male)</option>
+                  <option value="es-US-Neural2-A">Spanish (US) - Neural2 A (female)</option>
+                  <option value="es-US-Neural2-B">Spanish (US) - Neural2 B (male)</option>
+                  <option value="es-US-Neural2-C">Spanish (US) - Neural2 C (male)</option>
+                </optgroup>
+                <optgroup label="Italian">
+                  <option value="it-IT-Neural2-A">Italian - Neural2 A (female)</option>
+                  <option value="it-IT-Neural2-C">Italian - Neural2 C (male)</option>
+                </optgroup>
+                <optgroup label="Portuguese">
+                  <option value="pt-BR-Neural2-A">Portuguese (Brazil) - Neural2 A (female)</option>
+                  <option value="pt-BR-Neural2-B">Portuguese (Brazil) - Neural2 B (male)</option>
+                  <option value="pt-BR-Neural2-C">Portuguese (Brazil) - Neural2 C (female)</option>
+                </optgroup>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="googleTtsSpeakingRate">Speaking Rate:</label>
+              <div class="range-slider-group">
+                <input type="range" id="googleTtsSpeakingRate" class="form-range" min="0.5" max="2.0" step="0.1" value="1.0" />
+                <span id="googleTtsSpeakingRateValue" class="range-value">1.0x</span>
+              </div>
+            </div>
+            
+            <div class="form-group" id="googleTtsPitchWrapper">
+              <label for="googleTtsPitch">Pitch:</label>
+              <div class="range-slider-group">
+                <input type="range" id="googleTtsPitch" class="form-range" min="-10" max="10" step="1" value="0" />
+                <span id="googleTtsPitchValue" class="range-value">0</span>
+              </div>
+              <div class="help-text" id="googleTtsPitchNote" style="display: none; color: #888;">
+                <em>Note: Studio and Journey voices don't support pitch adjustment.</em>
+              </div>
+            </div>
+            
+            <div class="form-group tts-test-group">
+              <label for="googleTtsTestText">Test Text:</label>
+              <input type="text" id="googleTtsTestText" class="form-control" value="Hello! This is a test of the text to speech system." placeholder="Enter text to test" />
+              <div class="tts-test-button-row">
+                <button id="testGoogleTTSBtn" class="primary-button">Test Voice</button>
+                <span id="googleTtsTestStatus" class="tts-test-status"></span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="settings-section">
-          <h2>LLM Provider</h2>
-          <div class="form-group">
-            <label for="providerSelect">Provider:</label>
-            <select id="providerSelect" class="form-control">
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic Claude</option>
-              <option value="gemini">Google Gemini</option>
-            </select>
-          </div>
-
-          <div class="form-group" id="modelWrapper">
-            <label for="modelSelect">Model:</label>
-            <select id="modelSelect" class="form-control"></select>
-            <input type="text" id="customModel" class="form-control" placeholder="Or enter custom model name (optional)" />
-          </div>
-
-          <div class="form-group" id="openaiThinkingWrapper" style="display: none;">
-            <label>
-              <input type="checkbox" id="openaiThinkingCheckbox" />
-              Allow Thinking (slower)
-            </label>
-            <div class="help-text" style="font-size: 12px; color: #666; margin-top: 4px;">
-              Enables extended reasoning for GPT-5 series models. When disabled, reasoning effort is set to 'none' for faster responses.
+        <!-- About & Help Tab Content -->
+        <div id="tab-about" class="tab-content">
+          <div class="settings-section about-section">
+            <h2>About UGTBrowser <span class="version-badge">v1.0.2</span></h2>
+            <p class="about-description">
+              UGTBrowser is an extension for inline AI translation, created by Seth A. Robinson.
+            </p>
+            <div class="social-links">
+              <a href="https://www.rtsoft.com/" target="_blank" title="RTsoft Homepage" rel="noopener" class="social-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                Homepage
+              </a>
+              <a href="https://twitter.com/rtsoft" target="_blank" title="RTsoft on Twitter" rel="noopener" class="social-link">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                Twitter
+              </a>
+              <a href="https://bsky.app/profile/rtsoft.com" target="_blank" title="RTsoft on Bluesky" rel="noopener" class="social-link">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8Z"/></svg>
+                Bluesky
+              </a>
             </div>
           </div>
 
-          <div class="form-group" id="geminiThinkingWrapper" style="display: none;">
-            <label>
-              <input type="checkbox" id="geminiThinkingCheckbox" />
-              Allow Thinking (slower)
-            </label>
-            <div class="help-text" style="font-size: 12px; color: #666; margin-top: 4px;">
-              Enables extended reasoning for Gemini 2.5 and 3.x models. When disabled, thinking is minimized to reduce latency and cost.
-            </div>
-          </div>
-          
-          <div class="form-group" id="openaiKeyWrapper">
-            <label for="openaiApiKey">OpenAI API Key:</label>
-            <input type="password" id="openaiApiKey" class="form-control" placeholder="Enter OpenAI API key" />
-            <div class="api-key-help" id="openaiApiKeyHelp">
-              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>.
-            </div>
-          </div>
-          
-          <div class="form-group" id="anthropicKeyWrapper">
-            <label for="anthropicApiKey">Anthropic API Key:</label>
-            <input type="password" id="anthropicApiKey" class="form-control" placeholder="Enter Anthropic API key" />
-            <div class="api-key-help" id="anthropicApiKeyHelp">
-              Obtain your Anthropic API key from the <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Console</a> (Account Settings).
-            </div>
-          </div>
-          
-          <div class="form-group" id="geminiKeyWrapper">
-            <label for="geminiApiKey">Google Gemini API Key:</label>
-            <input type="password" id="geminiApiKey" class="form-control" placeholder="Enter Google Gemini API key" />
-            <div class="api-key-help" id="geminiApiKeyHelp">
-              Generate your Google Gemini API key via <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a>.
+          <div class="settings-section">
+            <h2>How to Translate</h2>
+            <div class="instructions-list">
+              <div class="instruction-step">
+                <span class="step-number">1</span>
+                <span class="step-text">Highlight the text you want to translate on any webpage.</span>
+              </div>
+              <div class="instruction-step">
+                <span class="step-number">2</span>
+                <span class="step-text">Right-click on the highlighted text.</span>
+              </div>
+              <div class="instruction-step">
+                <span class="step-number">3</span>
+                <span class="step-text">Select <strong>Translate to (language) with (provider)</strong> from the context menu.</span>
+              </div>
             </div>
           </div>
 
-          <div class="form-group" id="promptSection">
-            <div class="prompt-header">
-              <label for="promptTemplate">Prompt Template: <span class="help-icon" id="mainPromptHelpBtn">?</span></label>
-              <button id="resetPromptBtn" class="small-button">Reset to Default</button>
-            </div>
-            <p class="help-text">Use {{text}} for the text to translate (content script will format this as ID: Text lines) and {{target}} for the target language. Ensure your prompt asks the LLM to output translations wrapped in &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt; tags for each segment.</p>
-            <textarea id="promptTemplate" class="form-control" rows="4"></textarea>
+          <div class="settings-section">
+            <h2>Support & Feedback</h2>
+            <p>Comments or problems? Check out the project on GitHub:</p>
+            <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" title="UGTBrowser on GitHub" rel="noopener" class="github-link">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              UGTBrowser on GitHub
+            </a>
           </div>
-        </div>
 
-        <!-- Text-to-Speech Settings Section -->
-        <div class="settings-section" id="ttsSettingsSection">
-          <h2>Text-to-Speech (ElevenLabs)</h2>
-          
-          <div class="form-group" id="elevenlabsKeyWrapper">
-            <label for="elevenlabsApiKey">ElevenLabs API Key:</label>
-            <input type="password" id="elevenlabsApiKey" class="form-control" placeholder="Enter ElevenLabs API key" />
-            <div class="api-key-help" id="elevenlabsApiKeyHelp">
-              Get your ElevenLabs API key from <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io/app/settings/api-keys</a>.
-            </div>
-          </div>
-          
-          <div class="form-group">
-            <label for="elevenlabsVoice">Voice:</label>
-            <select id="elevenlabsVoice" class="form-control">
-              <option value="21m00Tcm4TlvDq8ikWAM">Rachel (female, narrative)</option>
-              <option value="29vD33N1CtxCmqQRPOHJ">Drew (male, news)</option>
-              <option value="2EiwWnXFnvU5JabPnv8n">Clyde (male, war veteran)</option>
-              <option value="5Q0t7uMcjvnagumLfvZi">Paul (male, news)</option>
-              <option value="AZnzlk1XvdvUeBnXmlld">Domi (female, strong)</option>
-              <option value="CYw3kZ02Hs0563khs1Fj">Dave (male, conversational)</option>
-              <option value="D38z5RcWu1voky8WS1ja">Fin (male, sailor)</option>
-              <option value="EXAVITQu4vr4xnSDxMaL">Sarah (female, soft news)</option>
-              <option value="ErXwobaYiN019PkySvjV">Antoni (male, well-rounded)</option>
-              <option value="GBv7mTt0atIp3Br8iCZE">Thomas (male, calm)</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="elevenlabsCustomVoiceId">Custom Voice ID (optional):</label>
-            <input type="text" id="elevenlabsCustomVoiceId" class="form-control" placeholder="Enter custom voice ID to override selection above" />
-            <div class="help-text">If you have a custom or cloned voice, enter its ID here. This will override the voice selection above.</div>
-          </div>
-          
-          <div class="form-group">
-            <label for="elevenlabsModel">Model:</label>
-            <select id="elevenlabsModel" class="form-control">
-              <option value="eleven_multilingual_v2">Multilingual v2 (best quality, 29 languages)</option>
-              <option value="eleven_turbo_v2_5">Turbo v2.5 (faster, 32 languages)</option>
-              <option value="eleven_turbo_v2">Turbo v2 (fast, English only)</option>
-              <option value="eleven_monolingual_v1">Monolingual v1 (English only)</option>
-            </select>
-          </div>
-          
-          <div class="form-group tts-test-group">
-            <label for="ttsTestText">Test Text:</label>
-            <input type="text" id="ttsTestText" class="form-control" value="Hello! This is a test of the ElevenLabs text to speech system." placeholder="Enter text to test" />
-            <div class="tts-test-button-row">
-              <button id="testTTSBtn" class="primary-button">Test Voice</button>
-              <span id="ttsTestStatus" class="tts-test-status"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- New section for debugging LLM requests and responses -->
-        <div class="settings-section">
-          <h2>LLM Debug</h2>
-          <p class="help-text">View the last LLM request and response for debugging purposes.</p>
-          <button id="toggleDebugBtn" class="small-button">Show Debug Info</button>
-          <div id="llmDebugContent">
-            <div class="debug-controls">
-              <button id="refreshLLMDataBtn" class="small-button">Refresh Data</button>
-            </div>
-            
-            <div class="form-group">
-              <label for="lastRequestInfo">Last Request Info:</label>
-              <div id="lastRequestInfo" class="debug-info">No request data available</div>
-            </div>
-            
-            <div class="form-group">
-              <label for="lastRequestPrompt">Last Request Prompt:</label>
-              <textarea id="lastRequestPrompt" class="form-control debug-textarea" rows="6" readonly></textarea>
-            </div>
-            
-            <div class="form-group">
-              <label for="lastResponseInfo">Last Response Info:</label>
-              <div id="lastResponseInfo" class="debug-info">No response data available</div>
-            </div>
-            
-            <div class="form-group">
-              <label for="lastResponseContent">Last Response Content:</label>
-              <textarea id="lastResponseContent" class="form-control debug-textarea" rows="10" readonly></textarea>
-            </div>
-          </div>
         </div>
 
         <div class="button-group">
@@ -285,4 +481,4 @@
 
     <script src="options.js"></script>
   </body>
-</html> 
+</html>

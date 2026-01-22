@@ -172,13 +172,24 @@ function buildTranslateTitle(settings) {
 }
 
 function buildSpeakTitle(settings) {
+  const ttsProvider = settings?.ttsProvider || 'elevenlabs';
   let voiceName = "Default";
+  let providerLabel = "ElevenLabs";
   
-  // If custom voice ID is set, show "Custom Voice" instead of the dropdown selection
-  if (settings && settings.elevenlabsCustomVoiceId && settings.elevenlabsCustomVoiceId.length > 0) {
-    voiceName = "Custom Voice";
-  } else if (settings && settings.elevenlabsVoiceName) {
-    voiceName = settings.elevenlabsVoiceName;
+  if (ttsProvider === 'google') {
+    providerLabel = "Google TTS";
+    if (settings && settings.googleTtsVoiceName) {
+      // Extract just the voice type from the full name (e.g., "English (US) - Studio O (female)" -> "Studio O")
+      const match = settings.googleTtsVoiceName.match(/- ([^(]+)/);
+      voiceName = match ? match[1].trim() : settings.googleTtsVoiceName;
+    }
+  } else {
+    // ElevenLabs
+    if (settings && settings.elevenlabsCustomVoiceId && settings.elevenlabsCustomVoiceId.length > 0) {
+      voiceName = "Custom Voice";
+    } else if (settings && settings.elevenlabsVoiceName) {
+      voiceName = settings.elevenlabsVoiceName;
+    }
   }
   
   // Truncate if too long
@@ -186,7 +197,7 @@ function buildSpeakTitle(settings) {
     voiceName = voiceName.substring(0, 20) + "...";
   }
   
-  return `Speak with ElevenLabs (${voiceName})`;
+  return `Speak with ${providerLabel} (${voiceName})`;
 }
 
 function createContextMenus(settings = {}) {
@@ -228,15 +239,18 @@ chrome.runtime.onInstalled.addListener(() => {
   // Fetch all relevant settings to build the initial context menu title correctly
   chrome.storage.local.get([
     'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
-    'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'
+    'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+    'googleTtsVoice', 'googleTtsVoiceName'
   ], (fullSettings) => {
     const effectiveSettings = {
       provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
       languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
       targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
       customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
+      ttsProvider: fullSettings.ttsProvider || 'elevenlabs',
       elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',
-      elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || ''
+      elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || '',
+      googleTtsVoiceName: fullSettings.googleTtsVoiceName || 'English (US) - Studio O (female)'
     };
     createContextMenus(effectiveSettings);
   });
@@ -246,7 +260,9 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local") {
     // Check if any of the relevant settings changed
-    const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'];
+    const relevantChanges = ['settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider', 
+      'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+      'googleTtsVoice', 'googleTtsVoiceName'];
     let needsUpdate = false;
     for (const key of relevantChanges) {
       if (changes[key]) {
@@ -259,7 +275,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
       // Fetch all current settings to rebuild the title correctly
       chrome.storage.local.get([
         'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
-        'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId'
+        'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+        'googleTtsVoice', 'googleTtsVoiceName'
       ], (fullSettings) => {
         // The `settings` object from storage might be nested or flat depending on how it was saved.
         // We need to construct a comprehensive object for buildTranslateTitle.
@@ -268,8 +285,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
           languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
           targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
           customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
+          ttsProvider: fullSettings.ttsProvider || 'elevenlabs',
           elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',
-          elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || ''
+          elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || '',
+          googleTtsVoiceName: fullSettings.googleTtsVoiceName || 'English (US) - Studio O (female)'
         };
         createContextMenus(effectiveSettings);
       });
@@ -412,6 +431,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch(error => {
         console.error("TTS test error:", error);
+        sendResponse({ success: false, error: error.message || String(error) });
+      });
+    return true; // Keep message channel open for async response
+  } else if (message.type === "TEST_GOOGLE_TTS") {
+    // Handle Google TTS test from options page
+    const { text, voiceId, apiKey, speakingRate, pitch } = message.payload;
+    
+    fetchFromGoogleTTS(text, voiceId, apiKey, speakingRate, pitch)
+      .then(base64Audio => {
+        sendResponse({ success: true, audio: base64Audio, mimeType: "audio/mp3" });
+      })
+      .catch(error => {
+        console.error("Google TTS test error:", error);
         sendResponse({ success: false, error: error.message || String(error) });
       });
     return true; // Keep message channel open for async response
@@ -821,25 +853,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // Handle Speak (TTS) menu item
   if (info.menuItemId === CONTEXT_MENU_SPEAK && info.selectionText) {
     chrome.storage.local.get([
-      'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel'
+      'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
+      'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
     ], async (data) => {
-      const apiKey = data.elevenlabsApiKey;
-      const customVoiceId = data.elevenlabsCustomVoiceId || '';
-      const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM"; // Default to Rachel
-      
-      // Use custom voice ID if provided (non-empty string), otherwise use dropdown selection
-      const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
-      const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
-      
-      if (!apiKey) {
-        // Notify user that API key is missing
-        chrome.tabs.sendMessage(tab.id, { 
-          type: "UGT_SHOW_ERROR", 
-          message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
-          errorContext: "API_KEY_ISSUE"
-        }, { frameId: info.frameId });
-        return;
-      }
+      const ttsProvider = data.ttsProvider || 'elevenlabs';
       
       // Show TTS overlay
       chrome.tabs.sendMessage(tab.id, { 
@@ -847,13 +864,56 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }, { frameId: info.frameId });
       
       try {
-        const base64Audio = await fetchFromElevenLabs(info.selectionText, voiceId, apiKey, modelId);
+        let base64Audio;
+        let mimeType;
+        
+        if (ttsProvider === 'google') {
+          // Google TTS
+          const apiKey = data.googleTtsApiKey;
+          const voiceId = data.googleTtsVoice || 'en-US-Studio-O';
+          const speakingRate = data.googleTtsSpeakingRate || 1.0;
+          const pitch = data.googleTtsPitch || 0;
+          
+          if (!apiKey) {
+            chrome.tabs.sendMessage(tab.id, { 
+              type: "UGT_SHOW_ERROR", 
+              message: "Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.",
+              errorContext: "API_KEY_ISSUE"
+            }, { frameId: info.frameId });
+            chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+            return;
+          }
+          
+          base64Audio = await fetchFromGoogleTTS(info.selectionText, voiceId, apiKey, speakingRate, pitch);
+          mimeType = "audio/mp3";
+          
+        } else {
+          // ElevenLabs TTS
+          const apiKey = data.elevenlabsApiKey;
+          const customVoiceId = data.elevenlabsCustomVoiceId || '';
+          const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM";
+          const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
+          const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
+          
+          if (!apiKey) {
+            chrome.tabs.sendMessage(tab.id, { 
+              type: "UGT_SHOW_ERROR", 
+              message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
+              errorContext: "API_KEY_ISSUE"
+            }, { frameId: info.frameId });
+            chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+            return;
+          }
+          
+          base64Audio = await fetchFromElevenLabs(info.selectionText, voiceId, apiKey, modelId);
+          mimeType = "audio/mpeg";
+        }
         
         // Send audio to content script for playback
         chrome.tabs.sendMessage(tab.id, { 
           type: "PLAY_TTS_AUDIO",
           audio: base64Audio,
-          mimeType: "audio/mpeg"
+          mimeType: mimeType
         }, { frameId: info.frameId }, (response) => {
           if (chrome.runtime.lastError) {
             console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
@@ -861,10 +921,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         });
         
       } catch (error) {
-        console.error("ElevenLabs TTS error:", error);
+        const providerName = ttsProvider === 'google' ? 'Google TTS' : 'ElevenLabs';
+        console.error(`${providerName} TTS error:`, error);
         chrome.tabs.sendMessage(tab.id, { 
           type: "UGT_SHOW_ERROR", 
-          message: `ElevenLabs TTS error: ${error.message}`,
+          message: `${providerName} TTS error: ${error.message}`,
           errorContext: "API_KEY_ISSUE"
         }, { frameId: info.frameId });
         
@@ -1819,6 +1880,86 @@ function arrayBufferToBase64(buffer) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+// Google Cloud Text-to-Speech API function
+async function fetchFromGoogleTTS(text, voiceId, apiKey, speakingRate = 1.0, pitch = 0) {
+  if (!apiKey) throw new Error("Google Cloud API key is required");
+  if (!voiceId) throw new Error("Voice ID is required");
+  
+  // Parse voice ID to get language code and voice name
+  // Voice IDs are formatted like "en-US-Studio-O" or "en-US-Neural2-A"
+  const parts = voiceId.split('-');
+  let languageCode, voiceName;
+  
+  if (parts.length >= 3) {
+    languageCode = parts.slice(0, 2).join('-'); // e.g., "en-US" or "cmn-CN"
+    voiceName = voiceId; // Full voice ID is used as the voice name
+  } else {
+    throw new Error("Invalid voice ID format");
+  }
+  
+  // Check if voice type supports pitch parameter
+  // Studio and Journey voices do NOT support pitch
+  const voiceType = voiceId.toLowerCase();
+  const supportsPitch = !voiceType.includes('studio') && !voiceType.includes('journey');
+  
+  const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`;
+  
+  const audioConfig = {
+    audioEncoding: "MP3",
+    speakingRate: speakingRate
+  };
+  
+  // Only add pitch if the voice type supports it
+  if (supportsPitch && pitch !== 0) {
+    audioConfig.pitch = pitch;
+  }
+  
+  const requestBody = {
+    input: {
+      text: text
+    },
+    voice: {
+      languageCode: languageCode,
+      name: voiceName
+    },
+    audioConfig: audioConfig
+  };
+  
+  console.log(`Google TTS request: voice=${voiceName}, lang=${languageCode}, rate=${speakingRate}`);
+  
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    let errorMessage = `Google TTS API error: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error && errorData.error.message) {
+        errorMessage = errorData.error.message;
+      }
+    } catch (e) {
+      // Couldn't parse error response
+    }
+    throw new Error(errorMessage);
+  }
+  
+  const data = await response.json();
+  
+  // Google TTS returns audio content as base64-encoded string
+  if (!data.audioContent) {
+    throw new Error("No audio content in response");
+  }
+  
+  console.log(`Google TTS response: received audio content`);
+  
+  return data.audioContent;
 }
 
 // Open options page when the browser action is clicked

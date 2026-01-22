@@ -12,7 +12,8 @@
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativeai.googleapis.com/*",
-    "https://api.elevenlabs.io/*"
+    "https://api.elevenlabs.io/*",
+    "https://texttospeech.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
