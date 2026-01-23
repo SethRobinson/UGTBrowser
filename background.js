@@ -520,7 +520,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   } else if (message.type === "CHAT_FOLLOWUP") {
     // Handle follow-up chat questions about cultural nuances
-    const { sessionId, question, originalText, culturalNuances, chatHistory } = message.payload;
+    const { sessionId, question, originalText, translatedText, culturalNuances, chatHistory } = message.payload;
     
     // Validate sessionId is present
     if (!sessionId) {
@@ -560,7 +560,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       
       // Build the chat prompt with context
-      const chatPrompt = buildChatPrompt(question, originalText, culturalNuances, chatHistory);
+      const chatPrompt = buildChatPrompt(question, originalText, culturalNuances, chatHistory, translatedText);
       
       try {
         // Use streaming for chat responses - pass sessionId for routing
@@ -588,15 +588,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Build a prompt for follow-up chat questions
-function buildChatPrompt(question, originalText, culturalNuances, chatHistory) {
+function buildChatPrompt(question, originalText, culturalNuances, chatHistory, translatedText = '') {
   let prompt = `You are a helpful assistant that answers questions about translations and cultural context.
 
 Here is the context:
 
-**Original Text (before translation):**
-${originalText}
+**Original Text (source language, before translation):**
+${originalText || '(Not available)'}
 
-**Cultural Nuances Explanation:**
+`;
+
+  // Include translated text if available
+  if (translatedText) {
+    prompt += `**Translated Text:**
+${translatedText}
+
+`;
+  }
+
+  prompt += `**Cultural Nuances Explanation:**
 ${culturalNuances}
 
 `;

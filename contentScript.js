@@ -238,7 +238,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     // Store session context
     const sessionContext = {
-      originalText: '', // Will be set later when translation completes
+      originalText: '', // Will be set later when translation completes (source language)
+      translatedText: '', // Will be set later when translation completes (target language)
       culturalNuances: culturalNuancesText,
       chatHistory: [],
       container: container,
@@ -374,6 +375,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           sessionId: sessionId, // Include session ID for response routing
           question: question,
           originalText: currentSession.originalText,
+          translatedText: currentSession.translatedText || '',
           culturalNuances: currentSession.culturalNuances,
           chatHistory: currentSession.chatHistory.slice(0, -1) // Exclude the question we just added
         }
@@ -1177,7 +1179,30 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               if (chatSessionId) {
                 const sessionContext = chatSessions.get(chatSessionId);
                 if (sessionContext) {
-                  sessionContext.originalText = fullyAssembledTranslation.trim();
+                  // Collect the ORIGINAL text (before translation) from the translated spans
+                  // This is what users want to see in follow-up questions for learning purposes
+                  let collectedOriginalText = "";
+                  let collectedTranslatedText = "";
+                  if (currentTranslationBatchId) {
+                    const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                    const originalTexts = [];
+                    const translatedTexts = [];
+                    batchSegments.forEach(span => {
+                      const originalText = span.getAttribute('data-original-text');
+                      const translatedText = span.getAttribute('data-translated-text');
+                      if (originalText && originalText.trim()) {
+                        originalTexts.push(originalText.trim());
+                      }
+                      if (translatedText && translatedText.trim()) {
+                        translatedTexts.push(translatedText.trim());
+                      }
+                    });
+                    collectedOriginalText = originalTexts.join(' ');
+                    collectedTranslatedText = translatedTexts.join(' ');
+                  }
+                  
+                  sessionContext.originalText = collectedOriginalText || '';
+                  sessionContext.translatedText = collectedTranslatedText || fullyAssembledTranslation.trim();
                   // Get provider name from settings (capitalize first letter)
                   const provider = currentTranslationSettings?.provider || 'AI';
                   sessionContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
