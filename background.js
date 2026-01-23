@@ -267,7 +267,7 @@ function createContextMenus(settings = {}) {
     // Create parent menu item - show in BOTH selection and page contexts
     chrome.contextMenus.create({
       id: CONTEXT_MENU_PARENT,
-      title: "UGTBrowser",
+      title: "UGTBrowser Language Tools",
       contexts: ["selection", "page"]
     });
     
