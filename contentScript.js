@@ -635,30 +635,74 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   function areInSameInlineFlow(prev, current) {
     if (!prev || !current) return false;
     
-    // If they don't have the same parent, they're likely not in the same inline flow
-    if (prev.parentNode !== current.parentNode) {
-      return false;
-    }
+    const blockTags = ['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'TR', 'TD', 'TH', 'BLOCKQUOTE', 'PRE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE', 'BODY', 'HTML'];
     
-    // Check for block elements, BR, or newlines between them
-    let node = prev.nextSibling;
-    while (node && node !== current) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const tagName = node.tagName.toUpperCase();
-        if (tagName === 'BR') return false;
-        // Check for block-level elements
-        const blockTags = ['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'TR', 'TD', 'TH', 'BLOCKQUOTE', 'PRE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV', 'ASIDE'];
-        if (blockTags.includes(tagName)) return false;
-      } else if (node.nodeType === Node.TEXT_NODE) {
-        // If there's a text node with newlines, they're not in the same inline flow
-        if (/[\n\r]/.test(node.nodeValue)) {
-          return false;
+    // If same parent, check for BR/block elements/newlines between them
+    if (prev.parentNode === current.parentNode) {
+      let node = prev.nextSibling;
+      while (node && node !== current) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const tagName = node.tagName.toUpperCase();
+          if (tagName === 'BR') return false;
+          if (blockTags.includes(tagName)) return false;
+        } else if (node.nodeType === Node.TEXT_NODE) {
+          // If there's a text node with newlines, they're not in the same inline flow
+          if (/[\n\r]/.test(node.nodeValue)) {
+            return false;
+          }
         }
+        node = node.nextSibling;
       }
-      node = node.nextSibling;
+      return true;
     }
     
-    return true;
+    // Different parents - check if they share the same block-level ancestor
+    // This handles cases like: text <a>link</a> more text (where link is in different parent)
+    function getBlockAncestor(el) {
+      let node = el.parentNode;
+      while (node && node.nodeType === Node.ELEMENT_NODE) {
+        if (blockTags.includes(node.tagName.toUpperCase())) {
+          return node;
+        }
+        node = node.parentNode;
+      }
+      return null;
+    }
+    
+    const prevBlock = getBlockAncestor(prev);
+    const currentBlock = getBlockAncestor(current);
+    
+    // If they share the same block ancestor, they're in the same inline flow
+    // (e.g., both inside the same <p> or <div>)
+    if (prevBlock && currentBlock && prevBlock === currentBlock) {
+      // Still need to check if there's a BR between them within this block
+      // Walk from prev to current looking for BRs
+      function containsBRBetween(ancestor, el1, el2) {
+        // Simple check: see if there's a BR element between the two elements
+        // by checking if any BR in the ancestor is positioned between them
+        const brs = ancestor.querySelectorAll('br');
+        if (brs.length === 0) return false;
+        
+        // Use compareDocumentPosition to check ordering
+        for (const br of brs) {
+          const afterPrev = (prev.compareDocumentPosition(br) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const beforeCurrent = (current.compareDocumentPosition(br) & Node.DOCUMENT_POSITION_PRECEDING);
+          if (afterPrev && beforeCurrent) {
+            return true; // BR is between prev and current
+          }
+        }
+        return false;
+      }
+      
+      if (containsBRBetween(prevBlock, prev, current)) {
+        return false;
+      }
+      
+      return true;
+    }
+    
+    // Different block ancestors = different lines/blocks
+    return false;
   }
 
   document.addEventListener("selectionchange", () => {
