@@ -175,6 +175,12 @@ function initializeOptionsPage() {
   // Initialize tabs
   initializeTabs();
   
+  // Set version from manifest
+  const versionBadge = document.getElementById('versionBadge');
+  if (versionBadge) {
+    versionBadge.textContent = 'v' + chrome.runtime.getManifest().version;
+  }
+  
   // Setup event listeners
   providerSelect.addEventListener('change', () => {
     // Restore the model for the newly selected provider
