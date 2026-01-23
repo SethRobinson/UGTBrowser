@@ -57,8 +57,11 @@ const geminiThinkingCheckbox = document.getElementById('geminiThinkingCheckbox')
 
 const promptTemplateTextarea = document.getElementById('promptTemplate');
 const creativeTaskTextarea = document.getElementById('creativeTaskTextarea');
+const lessonPromptTextarea = document.getElementById('lessonPromptTextarea');
 const mainPromptHelpBtn = document.getElementById('mainPromptHelpBtn');
 const creativeTaskHelpBtn = document.getElementById('creativeTaskHelpBtn');
+const lessonPromptHelpBtn = document.getElementById('lessonPromptHelpBtn');
+const resetLessonPromptBtn = document.getElementById('resetLessonPromptBtn');
 const statusDiv = document.getElementById('status');
 
 // Language mode elements
@@ -124,6 +127,15 @@ const providerModels = {
   anthropic: ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"],
   gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 };
+
+// Default lesson prompt
+const defaultLessonPrompt = `Create a comprehensive lesson to help me learn about this Japanese text and its translation: "{0}"
+
+Please include:
+1. A detailed breakdown table with columns for: Japanese text, Reading (furigana), Literal meaning, and Grammar notes
+2. Key vocabulary with example sentences
+3. Cultural or contextual notes if relevant
+4. At the end, provide 5 helpful flashcards in a clear format for memorization`;
 
 const defaultPrompts = {
   openai: (
@@ -337,6 +349,35 @@ function initializeOptionsPage() {
             "<p><strong>Example Instruction for LLM:</strong></p>" +
             "<p>'For each segment, use the provided ID and wrap your translation in tags like &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;. For example, if the input is \"&lt;ugt_abc123&gt;Original Text Segment&lt;/ugt_abc123&gt;\", you should output: \"&lt;ugt_abc123&gt;Translated Text Segment&lt;/ugt_abc123&gt;\".'</p>" +
             "<p>You can also add instructions regarding tone, style, or specific formatting requirements. The default prompts provide good examples of how to structure these instructions.</p>"
+    },
+    lessonPromptHelpBtn: {
+      title: "Lesson Prompt Template",
+      body: "<p>This prompt is used when you highlight text on a webpage and select <strong>\"Create Lesson\"</strong> from the right-click context menu.</p>" +
+            "<p><strong>How it works:</strong></p>" +
+            "<ul>" +
+            "<li>Select any text on a webpage (typically in a foreign language you're learning)</li>" +
+            "<li>Right-click and choose <strong>UGTBrowser Language Tools → Create Lesson</strong></li>" +
+            "<li>A detailed lesson will appear inline, similar to how translations are displayed</li>" +
+            "<li>You can ask follow-up questions using the chat interface</li>" +
+            "</ul>" +
+            "<p><strong>Placeholder:</strong></p>" +
+            "<ul>" +
+            "<li><code>{0}</code>: This will be replaced with the selected text</li>" +
+            "</ul>" +
+            "<p><strong>Customization Tips:</strong></p>" +
+            "<ul>" +
+            "<li>Tailor the prompt for your target language (Japanese, Spanish, etc.)</li>" +
+            "<li>Request specific content like grammar breakdowns, vocabulary lists, or cultural notes</li>" +
+            "<li>Ask for practice exercises, flashcards, or mnemonics</li>" +
+            "<li>Specify the format you prefer (tables, bullet points, etc.)</li>" +
+            "</ul>" +
+            "<p><strong>Example customizations:</strong></p>" +
+            "<ul>" +
+            "<li>\"Focus on JLPT N3 grammar patterns\"</li>" +
+            "<li>\"Include pitch accent notation for Japanese\"</li>" +
+            "<li>\"Provide Spanish conjugation tables\"</li>" +
+            "<li>\"Add example sentences with audio transcription hints\"</li>" +
+            "</ul>"
     }
   };
 
@@ -363,6 +404,12 @@ function initializeOptionsPage() {
   }
   if (creativeTaskHelpBtn) {
     creativeTaskHelpBtn.addEventListener('click', () => openHelpModal('creativeTaskHelpBtn'));
+  }
+  if (lessonPromptHelpBtn) {
+    lessonPromptHelpBtn.addEventListener('click', () => openHelpModal('lessonPromptHelpBtn'));
+  }
+  if (resetLessonPromptBtn) {
+    resetLessonPromptBtn.addEventListener('click', resetLessonPromptToDefault);
   }
   if (modalCloseBtn) {
     modalCloseBtn.addEventListener('click', closeHelpModal);
@@ -416,7 +463,9 @@ function restoreOptions() {
     googleTtsApiKey: '',
     googleTtsVoice: 'en-US-Studio-O',
     googleTtsSpeakingRate: 1.0,
-    googleTtsPitch: 0
+    googleTtsPitch: 0,
+    // Lesson settings
+    lessonPrompt: defaultLessonPrompt
   };
 
   // Add provider prompt template keys to keysToGet
@@ -553,6 +602,11 @@ function restoreOptions() {
     updateGoogleTtsPitchAvailability();
     updateGoogleTtsTestText();
 
+    // Restore lesson prompt
+    if (lessonPromptTextarea) {
+      lessonPromptTextarea.value = items.lessonPrompt || defaultLessonPrompt;
+    }
+
     fetchLastLLMData();
   });
 }
@@ -602,6 +656,9 @@ function saveOptions() {
   const googleTtsSpeakingRate = googleTtsSpeakingRateInput ? parseFloat(googleTtsSpeakingRateInput.value) : 1.0;
   const googleTtsPitch = googleTtsPitchInput ? parseFloat(googleTtsPitchInput.value) : 0;
 
+  // Lesson settings
+  const lessonPrompt = lessonPromptTextarea ? lessonPromptTextarea.value : defaultLessonPrompt;
+
   const settingsToSave = {
     selectedProvider: provider,
     // Save provider-specific model
@@ -634,6 +691,8 @@ function saveOptions() {
     googleTtsVoiceName: googleTtsVoiceName,
     googleTtsSpeakingRate: googleTtsSpeakingRate,
     googleTtsPitch: googleTtsPitch,
+    // Lesson settings
+    lessonPrompt: lessonPrompt,
     settings: { 
       provider: provider, 
       model: finalModel, 
@@ -825,6 +884,12 @@ function updateGoogleTtsTestText() {
 function resetPromptToDefault() {
   const provider = providerSelect.value;
   promptTemplateTextarea.value = defaultPrompts[provider];
+}
+
+function resetLessonPromptToDefault() {
+  if (lessonPromptTextarea) {
+    lessonPromptTextarea.value = defaultLessonPrompt;
+  }
 }
 
 function supportsTemperature(model) {

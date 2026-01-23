@@ -109,6 +109,20 @@
             </fieldset>
           </div>
 
+          <div class="form-section" id="lessonSettingsSection">
+            <fieldset>
+              <legend>Lesson Settings</legend>
+              <div class="form-group">
+                <div class="prompt-header">
+                  <label for="lessonPromptTextarea">Lesson Prompt Template: <span class="help-icon" id="lessonPromptHelpBtn">?</span></label>
+                  <button id="resetLessonPromptBtn" class="small-button">Reset to Default</button>
+                </div>
+                <p class="help-text">This prompt is used when you select text and choose "Create Lesson" from the right-click menu. Use {0} as a placeholder for the selected text.</p>
+                <textarea id="lessonPromptTextarea" class="form-control" rows="8" placeholder="Enter your lesson prompt template..."></textarea>
+              </div>
+            </fieldset>
+          </div>
+
           <div class="settings-section">
             <h2>LLM Provider</h2>
             <div class="form-group">

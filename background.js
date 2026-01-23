@@ -46,7 +46,7 @@ function showRestrictedPageWarning(url, action = 'translate') {
     }
   }
   
-  const actionVerb = action === 'speak' ? 'use text-to-speech' : 'translate';
+  const actionVerb = action === 'speak' ? 'use text-to-speech' : (action === 'lesson' ? 'create a lesson' : 'translate');
   
   chrome.notifications.create({
     type: 'basic',
@@ -66,6 +66,7 @@ function showRestrictedPageWarning(url, action = 'translate') {
 }
 const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
 const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
+const CONTEXT_MENU_LESSON = "ugtbrowser_lesson";
 const CONTEXT_MENU_SETTINGS = "ugtbrowser_settings";
 
 // Models that don't support temperature settings
@@ -87,6 +88,15 @@ const defaultPrompts = {
   anthropic: unifiedDefaultPrompt,
   gemini: unifiedDefaultPrompt
 };
+
+// Default lesson prompt
+const defaultLessonPrompt = `Create a comprehensive lesson to help me learn about this Japanese text and its translation: "{0}"
+
+Please include:
+1. A detailed breakdown table with columns for: Japanese text, Reading (furigana), Literal meaning, and Grammar notes
+2. Key vocabulary with example sentences
+3. Cultural or contextual notes if relevant
+4. At the end, provide 5 helpful flashcards in a clear format for memorization`;
 
 // Track active streaming ports for heartbeat responses
 const activeStreamingPorts = new Map();
@@ -287,6 +297,14 @@ function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_SPEAK,
       parentId: CONTEXT_MENU_PARENT,
       title: buildSpeakTitle(settings),
+      contexts: ["selection"]
+    });
+    
+    // Create Lesson child item (only for selection)
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_LESSON,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Create Lesson",
       contexts: ["selection"]
     });
     
@@ -619,6 +637,188 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     sendResponse({ status: "cancelled", sessionId: sessionId });
     return true;
+  } else if (message.type === "LESSON_REQUEST") {
+    // Handle lesson creation request - streams lesson content back to content script
+    const { sessionId, selectedText, lessonPrompt } = message.payload;
+    
+    // Validate sessionId is present
+    if (!sessionId) {
+      console.error("LESSON_REQUEST received without sessionId");
+      chrome.tabs.sendMessage(sender.tab.id, { 
+        type: "LESSON_STREAM_ERROR", 
+        sessionId: null,
+        error: "Internal error: No session ID provided"
+      }, { frameId: sender.frameId });
+      sendResponse({ status: "error", error: "No session ID" });
+      return true;
+    }
+    
+    // Get current settings to use the same provider/model
+    chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
+      const settings = data.settings || {};
+      const provider = data.selectedProvider || settings.provider || 'openai';
+      const model = settings.model;
+      
+      // Get the appropriate API key
+      let apiKey;
+      if (provider === 'openai') {
+        apiKey = data.openaiApiKey;
+      } else if (provider === 'anthropic') {
+        apiKey = data.anthropicApiKey;
+      } else if (provider === 'gemini') {
+        apiKey = data.geminiApiKey;
+      }
+      
+      if (!apiKey) {
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "LESSON_STREAM_ERROR", 
+          sessionId: sessionId,
+          error: `No API key configured for ${provider}. Please check your settings.`
+        }, { frameId: sender.frameId });
+        return;
+      }
+      
+      // Create abort controller for this lesson session
+      const abortController = new AbortController();
+      activeChatSessions.set(sessionId, {
+        abortController: abortController,
+        tabId: sender.tab.id,
+        frameId: sender.frameId
+      });
+      
+      // Build the lesson prompt by replacing {0} with the selected text
+      const fullPrompt = lessonPrompt.replace('{0}', selectedText);
+      
+      try {
+        // Use streaming for lesson responses
+        await fetchLessonStreaming(fullPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId, abortController.signal);
+        
+        // Send completion message with sessionId (only if not aborted)
+        if (!abortController.signal.aborted) {
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "LESSON_STREAM_COMPLETE",
+            sessionId: sessionId
+          }, { frameId: sender.frameId });
+        }
+        
+      } catch (error) {
+        // Don't send error if it was an intentional abort
+        if (error.name === 'AbortError') {
+          console.log(`Lesson session ${sessionId} was cancelled`);
+        } else {
+          console.error("Lesson request error:", error);
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "LESSON_STREAM_ERROR", 
+            sessionId: sessionId,
+            error: error.message || String(error)
+          }, { frameId: sender.frameId });
+        }
+      } finally {
+        // Clean up the session
+        activeChatSessions.delete(sessionId);
+      }
+    });
+    
+    sendResponse({ status: "lesson_started", sessionId: sessionId });
+    return true;
+  } else if (message.type === "LESSON_FOLLOWUP") {
+    // Handle follow-up questions about lessons
+    const { sessionId, question, originalText, lessonContent, chatHistory } = message.payload;
+    
+    // Validate sessionId is present
+    if (!sessionId) {
+      console.error("LESSON_FOLLOWUP received without sessionId");
+      chrome.tabs.sendMessage(sender.tab.id, { 
+        type: "LESSON_CHAT_STREAM_ERROR", 
+        sessionId: null,
+        error: "Internal error: No session ID provided"
+      }, { frameId: sender.frameId });
+      sendResponse({ status: "error", error: "No session ID" });
+      return true;
+    }
+    
+    // Get current settings to use the same provider/model
+    chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
+      const settings = data.settings || {};
+      const provider = data.selectedProvider || settings.provider || 'openai';
+      const model = settings.model;
+      
+      // Get the appropriate API key
+      let apiKey;
+      if (provider === 'openai') {
+        apiKey = data.openaiApiKey;
+      } else if (provider === 'anthropic') {
+        apiKey = data.anthropicApiKey;
+      } else if (provider === 'gemini') {
+        apiKey = data.geminiApiKey;
+      }
+      
+      if (!apiKey) {
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "LESSON_CHAT_STREAM_ERROR", 
+          sessionId: sessionId,
+          error: `No API key configured for ${provider}. Please check your settings.`
+        }, { frameId: sender.frameId });
+        return;
+      }
+      
+      // Create abort controller for this chat session
+      const abortController = new AbortController();
+      activeChatSessions.set(sessionId, {
+        abortController: abortController,
+        tabId: sender.tab.id,
+        frameId: sender.frameId
+      });
+      
+      // Build the lesson chat prompt
+      const chatPrompt = buildLessonChatPrompt(question, originalText, lessonContent, chatHistory);
+      
+      try {
+        // Use streaming for chat responses
+        await fetchLessonChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId, abortController.signal);
+        
+        // Send completion message with sessionId (only if not aborted)
+        if (!abortController.signal.aborted) {
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "LESSON_CHAT_STREAM_COMPLETE",
+            sessionId: sessionId
+          }, { frameId: sender.frameId });
+        }
+        
+      } catch (error) {
+        // Don't send error if it was an intentional abort
+        if (error.name === 'AbortError') {
+          console.log(`Lesson chat session ${sessionId} was cancelled`);
+        } else {
+          console.error("Lesson chat followup error:", error);
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "LESSON_CHAT_STREAM_ERROR", 
+            sessionId: sessionId,
+            error: error.message || String(error)
+          }, { frameId: sender.frameId });
+        }
+      } finally {
+        // Clean up the session
+        activeChatSessions.delete(sessionId);
+      }
+    });
+    
+    sendResponse({ status: "lesson_chat_started", sessionId: sessionId });
+    return true;
+  } else if (message.type === "LESSON_CANCEL") {
+    // Handle lesson cancellation (both initial lesson and chat)
+    const { sessionId } = message.payload;
+    console.log(`Received LESSON_CANCEL for session: ${sessionId}`);
+    
+    const lessonSession = activeChatSessions.get(sessionId);
+    if (lessonSession && lessonSession.abortController) {
+      lessonSession.abortController.abort();
+      activeChatSessions.delete(sessionId);
+      console.log(`Cancelled lesson session: ${sessionId}`);
+    }
+    
+    sendResponse({ status: "cancelled", sessionId: sessionId });
+    return true;
   }
 });
 
@@ -842,6 +1042,96 @@ async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk,
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+// Build a prompt for lesson follow-up chat questions
+function buildLessonChatPrompt(question, originalText, lessonContent, chatHistory) {
+  let prompt = `You are a helpful language learning assistant. The user is studying the following text and has received a lesson about it.
+
+**Original Text Being Studied:**
+${originalText || '(Not available)'}
+
+**Lesson Content:**
+${lessonContent}
+
+`;
+
+  // Add chat history if any
+  if (chatHistory && chatHistory.length > 0) {
+    prompt += `**Previous Conversation:**\n`;
+    for (const msg of chatHistory) {
+      const role = msg.role === 'user' ? 'User' : 'Assistant';
+      prompt += `${role}: ${msg.content}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `**Current Question:**
+${question}
+
+Please provide a helpful, educational answer. If the question relates to the language learning content, use the lesson context provided. Feel free to add additional examples, explanations, or practice exercises as appropriate. Format your response clearly, using markdown for emphasis where appropriate.`;
+
+  return prompt;
+}
+
+// Streaming lesson function for initial lesson generation
+async function fetchLessonStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null, abortSignal = null) {
+  console.log(`Starting lesson streaming for provider: ${provider}, sessionId: ${sessionId}`);
+  
+  const sendChunk = (chunk) => {
+    // Don't send if aborted
+    if (abortSignal && abortSignal.aborted) return;
+    
+    chrome.tabs.sendMessage(tabId, { 
+      type: "LESSON_STREAM_CHUNK", 
+      sessionId: sessionId,
+      chunk: chunk 
+    }, { frameId: frameId });
+  };
+  
+  switch (provider) {
+    case "openai":
+      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    case "anthropic":
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal);
+      break;
+    case "gemini":
+      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    default:
+      throw new Error(`Unknown provider: ${provider}`);
+  }
+}
+
+// Streaming lesson chat function for follow-up questions
+async function fetchLessonChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null, abortSignal = null) {
+  console.log(`Starting lesson chat streaming for provider: ${provider}, sessionId: ${sessionId}`);
+  
+  const sendChunk = (chunk) => {
+    // Don't send if aborted
+    if (abortSignal && abortSignal.aborted) return;
+    
+    chrome.tabs.sendMessage(tabId, { 
+      type: "LESSON_CHAT_STREAM_CHUNK", 
+      sessionId: sessionId,
+      chunk: chunk 
+    }, { frameId: frameId });
+  };
+  
+  switch (provider) {
+    case "openai":
+      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    case "anthropic":
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal);
+      break;
+    case "gemini":
+      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    default:
+      throw new Error(`Unknown provider: ${provider}`);
   }
 }
 
@@ -1099,6 +1389,31 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           type: "UGT_HIDE_TTS_OVERLAY"
         }, { frameId: info.frameId });
       }
+    });
+    return;
+  }
+  
+  // Handle Create Lesson menu item
+  if (info.menuItemId === CONTEXT_MENU_LESSON && info.selectionText) {
+    // Check if the page is restricted before attempting to create lesson
+    if (isRestrictedUrl(tab.url)) {
+      showRestrictedPageWarning(tab.url, 'lesson');
+      return;
+    }
+    
+    chrome.storage.local.get(['lessonPrompt'], (data) => {
+      const lessonPrompt = data.lessonPrompt || defaultLessonPrompt;
+      
+      // Send to content script
+      chrome.tabs.sendMessage(tab.id, { 
+        type: "CREATE_LESSON",
+        text: info.selectionText,
+        lessonPrompt: lessonPrompt
+      }, { frameId: info.frameId }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error(`Error sending CREATE_LESSON to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+        }
+      });
     });
     return;
   }

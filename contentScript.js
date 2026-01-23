@@ -37,9 +37,525 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // Chat context for follow-up questions - now stored per-session to support multiple concurrent chats
   const chatSessions = new Map(); // Map of sessionId -> { originalText, translatedText, culturalNuances, chatHistory, container, isStreaming, providerName, abortController }
   
+  // Lesson sessions - similar to chat sessions but for lesson creation
+  const lessonSessions = new Map(); // Map of sessionId -> { originalText, lessonContent, chatHistory, container, isStreaming, providerName, cancelRequested }
+  
   // Generate a unique session ID for chat
   function generateChatSessionId() {
     return 'chat_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+  }
+  
+  // Generate a unique session ID for lessons
+  function generateLessonSessionId() {
+    return 'lesson_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+  }
+  
+  // Handle the CREATE_LESSON message from the context menu
+  function handleCreateLesson(selectedText, lessonPrompt) {
+    if (!selectedText || !selectedText.trim()) {
+      console.warn('CREATE_LESSON called without text');
+      return;
+    }
+    
+    // Get the current selection to determine where to insert the lesson
+    const selection = window.getSelection();
+    let insertAfterElement = null;
+    
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      let endNode = range.endContainer;
+      
+      // Find a suitable element to insert after
+      if (endNode.nodeType === Node.TEXT_NODE) {
+        endNode = endNode.parentElement;
+      }
+      
+      // Walk up to find a block-level element or suitable container
+      while (endNode && endNode !== document.body) {
+        const display = window.getComputedStyle(endNode).display;
+        if (display === 'block' || display === 'flex' || display === 'list-item' || 
+            endNode.tagName === 'P' || endNode.tagName === 'DIV' || 
+            endNode.tagName === 'LI' || endNode.tagName === 'BLOCKQUOTE') {
+          insertAfterElement = endNode;
+          break;
+        }
+        endNode = endNode.parentElement;
+      }
+    }
+    
+    // If no suitable element found, use body
+    if (!insertAfterElement) {
+      insertAfterElement = document.body.lastElementChild || document.body;
+    }
+    
+    // Create the lesson session
+    const sessionId = generateLessonSessionId();
+    
+    // Create and insert the lesson container
+    const lessonContainer = createLessonContainer(selectedText, sessionId);
+    
+    // Insert after the selection
+    if (insertAfterElement.nextSibling) {
+      insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
+    } else {
+      insertAfterElement.parentNode.appendChild(lessonContainer);
+    }
+    
+    // Store session context
+    const sessionContext = {
+      originalText: selectedText,
+      lessonContent: '',
+      chatHistory: [],
+      container: lessonContainer,
+      isStreaming: true,
+      isChatStreaming: false,
+      cancelRequested: false,
+      chatCancelRequested: false
+    };
+    lessonSessions.set(sessionId, sessionContext);
+    
+    // Request lesson generation from background
+    chrome.runtime.sendMessage({
+      type: 'LESSON_REQUEST',
+      payload: {
+        sessionId: sessionId,
+        selectedText: selectedText,
+        lessonPrompt: lessonPrompt
+      }
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Lesson request error:', chrome.runtime.lastError);
+        sessionContext.isStreaming = false;
+        const contentWrapper = lessonContainer.querySelector('.ugt-lesson-content');
+        if (contentWrapper) {
+          contentWrapper.innerHTML = `<div style="color: #ef4444;">Error: ${escapeHtml(chrome.runtime.lastError.message)}</div>`;
+        }
+      }
+    });
+  }
+  
+  // Create the lesson container element
+  function createLessonContainer(originalText, sessionId) {
+    const container = document.createElement('div');
+    container.className = 'ugt-lesson-container';
+    container.dataset.lessonSessionId = sessionId;
+    
+    // Styling similar to cultural nuances but with a different accent color
+    Object.assign(container.style, {
+      marginLeft: '0',
+      marginTop: '16px',
+      marginBottom: '16px',
+      padding: '18px 22px',
+      borderLeft: '4px solid #10b981', // Green accent for lessons
+      backgroundColor: '#f0fdf4', // Light green background
+      borderRadius: '0 10px 10px 0',
+      boxShadow: '0 3px 12px rgba(16, 185, 129, 0.15)',
+      color: '#1f2937',
+      fontSize: '14px',
+      lineHeight: '1.6',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      maxWidth: '100%',
+      boxSizing: 'border-box'
+    });
+    
+    // Header with title and stop button
+    const header = document.createElement('div');
+    header.className = 'ugt-lesson-header';
+    Object.assign(header.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '12px',
+      paddingBottom: '10px',
+      borderBottom: '1px solid rgba(16, 185, 129, 0.3)'
+    });
+    
+    const title = document.createElement('div');
+    title.className = 'ugt-lesson-title';
+    title.innerHTML = `<strong style="color: #059669; font-size: 15px;">📚 Language Lesson</strong>`;
+    
+    // Stop button for cancelling generation
+    const stopButton = document.createElement('button');
+    stopButton.className = 'ugt-lesson-stop-btn';
+    stopButton.textContent = 'Stop';
+    Object.assign(stopButton.style, {
+      padding: '6px 14px',
+      backgroundColor: '#ef4444',
+      color: '#ffffff',
+      border: 'none',
+      borderRadius: '6px',
+      fontSize: '13px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      transition: 'background-color 0.2s'
+    });
+    
+    stopButton.addEventListener('mouseenter', () => {
+      stopButton.style.backgroundColor = '#dc2626';
+    });
+    stopButton.addEventListener('mouseleave', () => {
+      stopButton.style.backgroundColor = '#ef4444';
+    });
+    
+    stopButton.addEventListener('click', () => {
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext) {
+        sessionContext.cancelRequested = true;
+        sessionContext.isStreaming = false;
+        
+        // Send cancel message to background
+        chrome.runtime.sendMessage({
+          type: 'LESSON_CANCEL',
+          payload: { sessionId: sessionId }
+        });
+        
+        // Update content to show cancellation
+        const contentWrapper = container.querySelector('.ugt-lesson-content');
+        if (contentWrapper && sessionContext.lessonContent) {
+          contentWrapper.innerHTML = simpleMarkdownToHtml(sessionContext.lessonContent + '\n\n_[Generation stopped by user]_');
+        }
+        
+        // Remove stop button
+        stopButton.remove();
+        
+        // Still allow chat if there's some content
+        if (sessionContext.lessonContent && sessionContext.lessonContent.trim()) {
+          createLessonChatInterface(container, sessionContext.originalText, sessionContext.lessonContent, sessionId);
+        }
+      }
+    });
+    
+    header.appendChild(title);
+    header.appendChild(stopButton);
+    container.appendChild(header);
+    
+    // Original text preview (collapsible)
+    const originalPreview = document.createElement('div');
+    originalPreview.className = 'ugt-lesson-original';
+    Object.assign(originalPreview.style, {
+      marginBottom: '14px',
+      padding: '10px 14px',
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+      borderRadius: '6px',
+      fontSize: '13px',
+      color: '#374151'
+    });
+    
+    const truncatedText = originalText.length > 150 ? originalText.substring(0, 150) + '...' : originalText;
+    originalPreview.innerHTML = `<strong style="color: #059669;">Studying:</strong> "${escapeHtml(truncatedText)}"`;
+    container.appendChild(originalPreview);
+    
+    // Content wrapper for the lesson
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'ugt-lesson-content';
+    contentWrapper.innerHTML = `<span style="color: #9ca3af;">Generating lesson...</span>`;
+    container.appendChild(contentWrapper);
+    
+    return container;
+  }
+  
+  // Update the lesson content during streaming
+  function updateLessonContent(container, content) {
+    if (!container) return;
+    const contentWrapper = container.querySelector('.ugt-lesson-content');
+    if (contentWrapper) {
+      contentWrapper.innerHTML = simpleMarkdownToHtml(content);
+    }
+  }
+  
+  // Create the chat interface for lesson follow-up questions
+  function createLessonChatInterface(container, originalText, lessonContent, sessionId) {
+    // Check if chat interface already exists
+    if (container.querySelector('.ugt-lesson-chat-section')) {
+      return;
+    }
+    
+    // Create chat section wrapper
+    const chatSection = document.createElement('div');
+    chatSection.className = 'ugt-lesson-chat-section';
+    Object.assign(chatSection.style, {
+      marginTop: '18px',
+      paddingTop: '14px',
+      borderTop: '1px solid rgba(16, 185, 129, 0.3)'
+    });
+    
+    // Chat history area (initially hidden, shows when there's history)
+    const chatHistory = document.createElement('div');
+    chatHistory.className = 'ugt-lesson-chat-history';
+    Object.assign(chatHistory.style, {
+      display: 'none',
+      maxHeight: '250px',
+      overflowY: 'auto',
+      marginBottom: '14px',
+      padding: '10px',
+      backgroundColor: 'rgba(255, 255, 255, 0.6)',
+      borderRadius: '8px'
+    });
+    chatSection.appendChild(chatHistory);
+    
+    // Input row container
+    const inputRow = document.createElement('div');
+    inputRow.className = 'ugt-lesson-chat-input-row';
+    Object.assign(inputRow.style, {
+      display: 'flex',
+      gap: '10px',
+      alignItems: 'center'
+    });
+    
+    // Text input
+    const chatInput = document.createElement('input');
+    chatInput.type = 'text';
+    chatInput.className = 'ugt-lesson-chat-input';
+    chatInput.placeholder = 'Ask a follow-up question about this lesson...';
+    Object.assign(chatInput.style, {
+      flex: '1',
+      padding: '12px 16px',
+      border: '1px solid #d1d5db',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontFamily: 'inherit',
+      outline: 'none',
+      backgroundColor: '#ffffff',
+      color: '#1f2937',
+      transition: 'border-color 0.2s, box-shadow 0.2s'
+    });
+    
+    // Focus styles
+    chatInput.addEventListener('focus', () => {
+      chatInput.style.borderColor = '#10b981';
+      chatInput.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.15)';
+    });
+    chatInput.addEventListener('blur', () => {
+      chatInput.style.borderColor = '#d1d5db';
+      chatInput.style.boxShadow = 'none';
+    });
+    
+    // Send button
+    const sendButton = document.createElement('button');
+    sendButton.className = 'ugt-lesson-chat-send';
+    sendButton.textContent = 'Ask';
+    Object.assign(sendButton.style, {
+      padding: '12px 20px',
+      backgroundColor: '#10b981',
+      color: '#ffffff',
+      border: 'none',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      transition: 'background-color 0.2s',
+      whiteSpace: 'nowrap'
+    });
+    
+    sendButton.addEventListener('mouseenter', () => {
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext?.isChatStreaming) {
+        sendButton.style.backgroundColor = '#dc2626';
+      } else {
+        sendButton.style.backgroundColor = '#059669';
+      }
+    });
+    sendButton.addEventListener('mouseleave', () => {
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext?.isChatStreaming) {
+        sendButton.style.backgroundColor = '#ef4444';
+      } else {
+        sendButton.style.backgroundColor = '#10b981';
+      }
+    });
+    
+    // Handle cancel action
+    const cancelChatRequest = () => {
+      const sessionContext = lessonSessions.get(sessionId);
+      if (!sessionContext || !sessionContext.isChatStreaming) return;
+      
+      // Set cancel flag
+      sessionContext.chatCancelRequested = true;
+      
+      // Send cancel message to background
+      chrome.runtime.sendMessage({
+        type: 'LESSON_CANCEL',
+        payload: { sessionId: sessionId }
+      });
+      
+      // Find the streaming message and mark it as cancelled
+      const streamingMsg = container.querySelector(`.ugt-lesson-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+      if (streamingMsg) {
+        const currentContent = streamingMsg.dataset.content || '';
+        const cancelledContent = currentContent + (currentContent ? '\n\n' : '') + '_[Generation stopped by user]_';
+        finishLessonChatResponse(streamingMsg, cancelledContent, false, sessionId);
+        
+        // Add to chat history
+        if (!sessionContext.chatHistory) sessionContext.chatHistory = [];
+        sessionContext.chatHistory.push({ role: 'assistant', content: cancelledContent });
+      }
+      
+      resetLessonChatInputState(chatInput, sendButton, sessionId);
+    };
+    
+    // Handle send action
+    const sendChatMessage = () => {
+      const question = chatInput.value.trim();
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      if (!question || !sessionContext || sessionContext.isChatStreaming) return;
+      
+      // Reset cancel flag
+      sessionContext.chatCancelRequested = false;
+      
+      // Initialize chat history if needed
+      if (!sessionContext.chatHistory) sessionContext.chatHistory = [];
+      
+      // Add user message to history display
+      addLessonChatMessage(chatHistory, 'user', question, sessionId);
+      sessionContext.chatHistory.push({ role: 'user', content: question });
+      
+      // Clear input
+      chatInput.value = '';
+      
+      // Show loading state - transform to Stop button
+      sessionContext.isChatStreaming = true;
+      sendButton.textContent = 'Stop';
+      sendButton.style.backgroundColor = '#ef4444';
+      sendButton.style.cursor = 'pointer';
+      sendButton.title = 'Stop generation';
+      chatInput.disabled = true;
+      
+      // Create placeholder for assistant response
+      const assistantMsgDiv = addLessonChatMessage(chatHistory, 'assistant', '', sessionId);
+      assistantMsgDiv.dataset.streaming = 'true';
+      assistantMsgDiv.dataset.sessionId = sessionId;
+      
+      // Send to background script
+      chrome.runtime.sendMessage({
+        type: 'LESSON_FOLLOWUP',
+        payload: {
+          sessionId: sessionId,
+          question: question,
+          originalText: sessionContext.originalText,
+          lessonContent: sessionContext.lessonContent,
+          chatHistory: sessionContext.chatHistory.slice(0, -1)
+        }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Lesson chat followup error:', chrome.runtime.lastError);
+          finishLessonChatResponse(assistantMsgDiv, 'Error: ' + chrome.runtime.lastError.message, true, sessionId);
+          resetLessonChatInputState(chatInput, sendButton, sessionId);
+        }
+      });
+    };
+    
+    // Button click handler - Send or Stop depending on state
+    sendButton.addEventListener('click', () => {
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.isChatStreaming) {
+        cancelChatRequest();
+      } else {
+        sendChatMessage();
+      }
+    });
+    
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendChatMessage();
+      }
+    });
+    
+    inputRow.appendChild(chatInput);
+    inputRow.appendChild(sendButton);
+    chatSection.appendChild(inputRow);
+    
+    container.appendChild(chatSection);
+  }
+  
+  // Add a message to the lesson chat history
+  function addLessonChatMessage(historyContainer, role, content, sessionId = null) {
+    // Show history container if hidden
+    historyContainer.style.display = 'block';
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `ugt-lesson-chat-message ugt-lesson-chat-${role}`;
+    Object.assign(msgDiv.style, {
+      marginBottom: '12px',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      lineHeight: '1.5'
+    });
+    
+    if (role === 'user') {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#d1fae5', // Light green for user
+        marginLeft: '24px',
+        borderBottomRightRadius: '2px'
+      });
+      msgDiv.innerHTML = `<strong style="color: #047857;">You:</strong> ${escapeHtml(content)}`;
+    } else {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#f3f4f6',
+        marginRight: '24px',
+        borderBottomLeftRadius: '2px'
+      });
+      if (content) {
+        msgDiv.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+      } else {
+        msgDiv.innerHTML = `<strong style="color: #10b981;">AI:</strong> <span style="color: #9ca3af;">Thinking...</span>`;
+      }
+    }
+    
+    historyContainer.appendChild(msgDiv);
+    historyContainer.scrollTop = historyContainer.scrollHeight;
+    
+    return msgDiv;
+  }
+  
+  // Update streaming message content for lesson chat
+  function updateLessonChatStreamingMessage(msgDiv, content) {
+    if (!msgDiv) return;
+    msgDiv.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+    const historyContainer = msgDiv.parentElement;
+    if (historyContainer) {
+      const isNearBottom = historyContainer.scrollHeight - historyContainer.scrollTop - historyContainer.clientHeight < 100;
+      if (isNearBottom) {
+        historyContainer.scrollTop = historyContainer.scrollHeight;
+      }
+    }
+  }
+  
+  // Finish lesson chat response
+  function finishLessonChatResponse(msgDiv, content, isError = false, sessionId = null) {
+    if (!msgDiv) return;
+    
+    const htmlContent = simpleMarkdownToHtml(content);
+    
+    if (isError) {
+      msgDiv.innerHTML = `<strong style="color: #ef4444;">Error:</strong> <span style="color: #ef4444;">${escapeHtml(content)}</span>`;
+    } else {
+      msgDiv.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${htmlContent}`;
+    }
+    
+    // Remove streaming flag
+    msgDiv.removeAttribute('data-streaming');
+    
+    const sessionContext = sessionId ? lessonSessions.get(sessionId) : null;
+    if (sessionContext) {
+      sessionContext.isChatStreaming = false;
+    }
+  }
+  
+  // Reset lesson chat input state
+  function resetLessonChatInputState(chatInput, sendButton, sessionId) {
+    const sessionContext = lessonSessions.get(sessionId);
+    if (sessionContext) {
+      sessionContext.isChatStreaming = false;
+      sessionContext.chatCancelRequested = false;
+    }
+    
+    chatInput.disabled = false;
+    sendButton.textContent = 'Ask';
+    sendButton.style.backgroundColor = '#10b981';
+    sendButton.style.cursor = 'pointer';
+    sendButton.title = '';
   }
 
   // NEW: Class name for our translation segments/placeholders
@@ -1006,6 +1522,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       handleTranslate(msg.text, msg.settings);
       sendResponse();
       return true;
+    } else if (msg.type === "CREATE_LESSON") {
+      handleCreateLesson(msg.text, msg.lessonPrompt);
+      sendResponse();
+      return true;
     } else if (msg.type === "PING") {
       sendResponse({ status: "ok" });
       return true;
@@ -1180,6 +1700,140 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       playTTSAudio(msg.audio, msg.mimeType);
       sendResponse({ status: "playing" });
       return true;
+    } else if (msg.type === "LESSON_STREAM_CHUNK") {
+      // Handle lesson streaming chunks - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_STREAM_CHUNK received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      // Ignore chunks if cancel was requested
+      if (sessionContext && sessionContext.isStreaming && sessionContext.container && !sessionContext.cancelRequested) {
+        // Get existing content and append new chunk
+        const currentContent = sessionContext.lessonContent || '';
+        const newContent = currentContent + msg.chunk;
+        sessionContext.lessonContent = newContent;
+        
+        // Update the lesson content display
+        updateLessonContent(sessionContext.container, newContent);
+      }
+    } else if (msg.type === "LESSON_STREAM_COMPLETE") {
+      // Handle lesson stream completion - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_STREAM_COMPLETE received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
+        sessionContext.isStreaming = false;
+        
+        // Show the chat interface now that the lesson is complete
+        createLessonChatInterface(sessionContext.container, sessionContext.originalText, sessionContext.lessonContent, sessionId);
+        
+        // Update stop button to indicate completion
+        const stopButton = sessionContext.container.querySelector('.ugt-lesson-stop-btn');
+        if (stopButton) {
+          stopButton.remove();
+        }
+      }
+    } else if (msg.type === "LESSON_STREAM_ERROR") {
+      // Handle lesson stream error - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_STREAM_ERROR received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
+        sessionContext.isStreaming = false;
+        
+        // Show error in the lesson container
+        const contentWrapper = sessionContext.container.querySelector('.ugt-lesson-content');
+        if (contentWrapper) {
+          contentWrapper.innerHTML = `<div style="color: #ef4444; font-weight: 500;">Error: ${escapeHtml(msg.error || 'An error occurred')}</div>`;
+        }
+        
+        // Remove stop button
+        const stopButton = sessionContext.container.querySelector('.ugt-lesson-stop-btn');
+        if (stopButton) {
+          stopButton.remove();
+        }
+      }
+    } else if (msg.type === "LESSON_CHAT_STREAM_CHUNK") {
+      // Handle lesson chat streaming chunks - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_CHAT_STREAM_CHUNK received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      // Ignore chunks if cancel was requested
+      if (sessionContext && sessionContext.isChatStreaming && sessionContext.container && !sessionContext.chatCancelRequested) {
+        // Find the streaming message element by both streaming status AND session ID
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-lesson-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        if (streamingMsg) {
+          // Get existing content or empty string
+          const currentContent = streamingMsg.dataset.content || '';
+          const newContent = currentContent + msg.chunk;
+          streamingMsg.dataset.content = newContent;
+          updateLessonChatStreamingMessage(streamingMsg, newContent);
+        }
+      }
+    } else if (msg.type === "LESSON_CHAT_STREAM_COMPLETE") {
+      // Handle lesson chat stream completion - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_CHAT_STREAM_COMPLETE received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.chatCancelRequested) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-lesson-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-lesson-chat-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-lesson-chat-send');
+        
+        if (streamingMsg) {
+          const finalContent = streamingMsg.dataset.content || '';
+          finishLessonChatResponse(streamingMsg, finalContent, false, sessionId);
+          
+          // Add to chat history in session context
+          if (!sessionContext.chatHistory) sessionContext.chatHistory = [];
+          sessionContext.chatHistory.push({ role: 'assistant', content: finalContent });
+        }
+        
+        if (chatInput && sendButton) {
+          resetLessonChatInputState(chatInput, sendButton, sessionId);
+        }
+      }
+    } else if (msg.type === "LESSON_CHAT_STREAM_ERROR") {
+      // Handle lesson chat stream error - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('LESSON_CHAT_STREAM_ERROR received without sessionId');
+        return;
+      }
+      
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.chatCancelRequested) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-lesson-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-lesson-chat-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-lesson-chat-send');
+        
+        if (streamingMsg) {
+          finishLessonChatResponse(streamingMsg, msg.error || 'An error occurred', true, sessionId);
+        }
+        
+        if (chatInput && sendButton) {
+          resetLessonChatInputState(chatInput, sendButton, sessionId);
+        }
+      }
     }
     return msg.type === "PING";
   });
