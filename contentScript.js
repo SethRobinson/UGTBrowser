@@ -33,6 +33,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // TTS-specific variables
   let ttsOverlayDiv = null;
   let ttsAudioElement = null;
+  
+  // Lesson progress overlay
+  let lessonOverlayDiv = null;
+  let lessonOverlaySessionId = null; // Track which session the overlay belongs to
 
   // Chat context for follow-up questions - now stored per-session to support multiple concurrent chats
   const chatSessions = new Map(); // Map of sessionId -> { originalText, translatedText, culturalNuances, chatHistory, container, isStreaming, providerName, abortController }
@@ -57,49 +61,44 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return;
     }
     
-    // Get the current selection to determine where to insert the lesson
-    const selection = window.getSelection();
-    let insertAfterElement = null;
-    
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      let endNode = range.endContainer;
-      
-      // Find a suitable element to insert after
-      if (endNode.nodeType === Node.TEXT_NODE) {
-        endNode = endNode.parentElement;
-      }
-      
-      // Walk up to find a block-level element or suitable container
-      while (endNode && endNode !== document.body) {
-        const display = window.getComputedStyle(endNode).display;
-        if (display === 'block' || display === 'flex' || display === 'list-item' || 
-            endNode.tagName === 'P' || endNode.tagName === 'DIV' || 
-            endNode.tagName === 'LI' || endNode.tagName === 'BLOCKQUOTE') {
-          insertAfterElement = endNode;
-          break;
-        }
-        endNode = endNode.parentElement;
-      }
-    }
-    
-    // If no suitable element found, use body
-    if (!insertAfterElement) {
-      insertAfterElement = document.body.lastElementChild || document.body;
-    }
-    
-    // Create the lesson session
+    // Create the lesson session ID early so we can show the overlay
     const sessionId = generateLessonSessionId();
     
-    // Create and insert the lesson container
+    // Show progress overlay immediately for user feedback
+    showLessonOverlay(sessionId);
+    
+    // Get the selection range - use same approach as translate which works correctly
+    let activeRange = savedRange;
+    
+    if (!activeRange) {
+      const currentSelection = document.getSelection();
+      if (currentSelection && currentSelection.rangeCount > 0) {
+        activeRange = currentSelection.getRangeAt(0).cloneRange();
+      }
+    }
+    
+    // Create the lesson container
     const lessonContainer = createLessonContainer(selectedText, sessionId);
     
-    // Insert after the selection
-    if (insertAfterElement.nextSibling) {
-      insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
+    // Insert directly after the selection using range (same approach as translate)
+    if (activeRange) {
+      // Clone the range and collapse to the end point
+      const insertionRange = activeRange.cloneRange();
+      insertionRange.collapse(false); // Collapse to end
+      
+      // Insert the lesson container at the end of the selection
+      insertionRange.insertNode(lessonContainer);
+      
+      // Clear the selection so user doesn't have to click away
+      window.getSelection().removeAllRanges();
     } else {
-      insertAfterElement.parentNode.appendChild(lessonContainer);
+      // Fallback: append to body if no range available
+      console.warn('No selection range available for lesson insertion, appending to body');
+      document.body.appendChild(lessonContainer);
     }
+    
+    // Scroll to the lesson container so the user can see it
+    lessonContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     
     // Store session context
     const sessionContext = {
@@ -125,6 +124,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('Lesson request error:', chrome.runtime.lastError);
+        hideLessonOverlay(); // Hide overlay on error
         sessionContext.isStreaming = false;
         const contentWrapper = lessonContainer.querySelector('.ugt-lesson-content');
         if (contentWrapper) {
@@ -1717,8 +1717,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const sessionContext = lessonSessions.get(sessionId);
       // Ignore chunks if cancel was requested
       if (sessionContext && sessionContext.isStreaming && sessionContext.container && !sessionContext.cancelRequested) {
-        // Get existing content and append new chunk
+        // Hide the progress overlay on first chunk - lesson is now visible
         const currentContent = sessionContext.lessonContent || '';
+        if (!currentContent) {
+          // First chunk received - hide overlay and update text
+          hideLessonOverlay();
+        }
+        
+        // Append new chunk
         const newContent = currentContent + msg.chunk;
         sessionContext.lessonContent = newContent;
         
@@ -1732,6 +1738,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         console.warn('LESSON_STREAM_COMPLETE received without sessionId');
         return;
       }
+      
+      // Ensure overlay is hidden
+      hideLessonOverlay();
       
       const sessionContext = lessonSessions.get(sessionId);
       if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
@@ -1753,6 +1762,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         console.warn('LESSON_STREAM_ERROR received without sessionId');
         return;
       }
+      
+      // Ensure overlay is hidden
+      hideLessonOverlay();
       
       const sessionContext = lessonSessions.get(sessionId);
       if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
@@ -3011,5 +3023,131 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
       ttsAudioElement = null;
     }
+  }
+  
+  // Lesson Progress Overlay functions
+  function showLessonOverlay(sessionId) {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_SHOW_LESSON_OVERLAY_RELAY", sessionId });
+      return;
+    }
+    if (lessonOverlayDiv) hideLessonOverlay();
+    
+    lessonOverlaySessionId = sessionId;
+    lessonOverlayDiv = document.createElement("div");
+    Object.assign(lessonOverlayDiv.style, {
+      position: "fixed",
+      top: "10px",
+      right: "10px",
+      padding: "12px 16px",
+      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+      color: "#fff",
+      borderRadius: "8px",
+      zIndex: "2147483647",
+      fontSize: "14px",
+      fontFamily: "Arial, sans-serif",
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      boxShadow: "0 4px 15px rgba(16, 185, 129, 0.4)"
+    });
+    
+    // Book icon
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = "📚";
+    iconSpan.style.fontSize = "18px";
+    lessonOverlayDiv.appendChild(iconSpan);
+    
+    // Text
+    const textSpan = document.createElement("span");
+    textSpan.className = "lesson-overlay-text";
+    textSpan.textContent = "Creating lesson...";
+    lessonOverlayDiv.appendChild(textSpan);
+    
+    // Spinner
+    const spinnerSpan = document.createElement("span");
+    spinnerSpan.className = "lesson-spinner";
+    spinnerSpan.textContent = "⠋";
+    spinnerSpan.style.display = "inline-block";
+    spinnerSpan.style.width = "1em";
+    spinnerSpan.style.animation = "none";
+    lessonOverlayDiv.appendChild(spinnerSpan);
+    
+    // Animate spinner
+    const dots = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let frame = 0;
+    lessonOverlayDiv._spinnerInterval = setInterval(() => {
+      frame = (frame + 1) % dots.length;
+      spinnerSpan.textContent = dots[frame];
+    }, 100);
+    
+    // Cancel button
+    const cancelBtn = document.createElement("span");
+    cancelBtn.innerHTML = "✖";
+    cancelBtn.style.cursor = "pointer";
+    cancelBtn.style.marginLeft = "8px";
+    cancelBtn.style.color = "#ffcccc";
+    cancelBtn.title = "Cancel";
+    cancelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      cancelLessonFromOverlay();
+    });
+    lessonOverlayDiv.appendChild(cancelBtn);
+    
+    document.body.appendChild(lessonOverlayDiv);
+  }
+  
+  function hideLessonOverlay() {
+    if (window.self !== window.top) {
+      chrome.runtime.sendMessage({ type: "UGT_HIDE_LESSON_OVERLAY_RELAY" });
+      return;
+    }
+    if (!lessonOverlayDiv) return;
+    
+    if (lessonOverlayDiv._spinnerInterval) {
+      clearInterval(lessonOverlayDiv._spinnerInterval);
+    }
+    
+    lessonOverlayDiv.remove();
+    lessonOverlayDiv = null;
+    lessonOverlaySessionId = null;
+  }
+  
+  function updateLessonOverlay(text) {
+    if (!lessonOverlayDiv) return;
+    const textSpan = lessonOverlayDiv.querySelector('.lesson-overlay-text');
+    if (textSpan) {
+      textSpan.textContent = text;
+    }
+  }
+  
+  function cancelLessonFromOverlay() {
+    const sessionId = lessonOverlaySessionId;
+    if (!sessionId) {
+      hideLessonOverlay();
+      return;
+    }
+    
+    const sessionContext = lessonSessions.get(sessionId);
+    if (sessionContext) {
+      sessionContext.cancelRequested = true;
+      sessionContext.isStreaming = false;
+      
+      // Send cancel message to background
+      chrome.runtime.sendMessage({
+        type: 'LESSON_CANCEL',
+        payload: { sessionId: sessionId }
+      });
+      
+      // Remove the lesson container if it was created
+      if (sessionContext.container && sessionContext.container.parentNode) {
+        sessionContext.container.remove();
+      }
+      
+      // Clean up session
+      lessonSessions.delete(sessionId);
+    }
+    
+    hideLessonOverlay();
   }
 } 
