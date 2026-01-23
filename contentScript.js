@@ -1529,6 +1529,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else if (msg.type === "PING") {
       sendResponse({ status: "ok" });
       return true;
+    } else if (msg.type === "GET_SELECTION") {
+      // Return the current page selection (used when right-clicking away from selected text)
+      const selection = window.getSelection();
+      const selectionText = selection ? selection.toString().trim() : '';
+      sendResponse({ selectionText: selectionText || null });
+      return true;
     } else if (msg.type === "UGT_SHOW_OVERLAY" && window.self === window.top) {
       //console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
       showOverlay(msg.provider);

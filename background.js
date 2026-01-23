@@ -64,6 +64,53 @@ function showRestrictedPageWarning(url, action = 'translate') {
     }, 5000);
   });
 }
+
+// Helper function to show a warning when no text is selected
+function showNoSelectionWarning() {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: 'UGTBrowser',
+    message: 'Please highlight some text first, then try again.',
+    priority: 1
+  }, (notificationId) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error showing notification:", chrome.runtime.lastError.message);
+    }
+    // Auto-close notification after 4 seconds
+    setTimeout(() => {
+      chrome.notifications.clear(notificationId);
+    }, 4000);
+  });
+}
+
+// Helper function to get selection text - either from context menu info or by querying the page
+async function getSelectionText(info, tab) {
+  // If selection text is directly available from context menu, use it
+  if (info.selectionText) {
+    return info.selectionText;
+  }
+  
+  // Otherwise, query the content script for the current page selection
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(
+      tab.id,
+      { type: "GET_SELECTION" },
+      { frameId: info.frameId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn("Could not get selection from page:", chrome.runtime.lastError.message);
+          resolve(null);
+        } else if (response && response.selectionText) {
+          resolve(response.selectionText);
+        } else {
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
 const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
 const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
 const CONTEXT_MENU_LESSON = "ugtbrowser_lesson";
@@ -284,36 +331,38 @@ function createContextMenus(settings = {}) {
       contexts: ["selection", "page", "link"]
     });
     
-    // Create Translate child item (only for selection)
+    // Create Translate child item (for selection and link - link context will fetch selection from page)
     chrome.contextMenus.create({
       id: CONTEXT_MENU_TRANSLATE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings),
-      contexts: ["selection"]
+      contexts: ["selection", "link"]
     });
     
-    // Create Speak child item (only for selection)
+    // Create Speak child item (for selection and link - link context will fetch selection from page)
     chrome.contextMenus.create({
       id: CONTEXT_MENU_SPEAK,
       parentId: CONTEXT_MENU_PARENT,
       title: buildSpeakTitle(settings),
-      contexts: ["selection"]
+      contexts: ["selection", "link"]
     });
     
-    // Create Lesson child item (only for selection)
+    // Create Lesson child item (for selection and link - link context will fetch selection from page)
     chrome.contextMenus.create({
       id: CONTEXT_MENU_LESSON,
       parentId: CONTEXT_MENU_PARENT,
       title: "Create Lesson",
-      contexts: ["selection"]
+      contexts: ["selection", "link"]
     });
     
-    // Create a disabled hint item (only when NO selection - page and link contexts)
+    // Create a disabled hint item (only when NO selection - page context only)
+    // Note: We don't include "link" here because Chrome fires both "selection" and "link" 
+    // contexts when right-clicking a selected link, which would show this hint incorrectly
     chrome.contextMenus.create({
       id: "ugtbrowser_hint",
       parentId: CONTEXT_MENU_PARENT,
       title: "(Highlight some text first!)",
-      contexts: ["page", "link"],
+      contexts: ["page"],
       enabled: false
     });
     
@@ -1271,148 +1320,172 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
   
   // Handle Translate menu item
-  if (info.menuItemId === CONTEXT_MENU_TRANSLATE && info.selectionText) {
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE) {
     // Check if the page is restricted before attempting to translate
     if (isRestrictedUrl(tab.url)) {
       showRestrictedPageWarning(tab.url);
       return;
     }
     
-    chrome.storage.local.get(null, async (data) => { 
-      const settings = data.settings || {};
-      const messagePayload = { 
-        type: "TRANSLATE_SELECTION",
-        text: info.selectionText,
-        settings
-      };
-      
-      try {
-        chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error(`Error sending TRANSLATE_SELECTION to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
-          }
-        });
-      } catch (error) { 
-        console.error("Synchronous error in context menu click handler:", error.message);
+    // Get selection text - either from context menu or by querying the page
+    getSelectionText(info, tab).then(selectionText => {
+      if (!selectionText) {
+        showNoSelectionWarning();
+        return;
       }
+      
+      chrome.storage.local.get(null, async (data) => { 
+        const settings = data.settings || {};
+        const messagePayload = { 
+          type: "TRANSLATE_SELECTION",
+          text: selectionText,
+          settings
+        };
+        
+        try {
+          chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error(`Error sending TRANSLATE_SELECTION to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+            }
+          });
+        } catch (error) { 
+          console.error("Synchronous error in context menu click handler:", error.message);
+        }
+      });
     });
     return;
   }
   
   // Handle Speak (TTS) menu item
-  if (info.menuItemId === CONTEXT_MENU_SPEAK && info.selectionText) {
+  if (info.menuItemId === CONTEXT_MENU_SPEAK) {
     // Check if the page is restricted before attempting TTS
     if (isRestrictedUrl(tab.url)) {
       showRestrictedPageWarning(tab.url, 'speak');
       return;
     }
     
-    chrome.storage.local.get([
-      'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
-      'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
-    ], async (data) => {
-      const ttsProvider = data.ttsProvider || 'elevenlabs';
-      
-      // Show TTS overlay
-      chrome.tabs.sendMessage(tab.id, { 
-        type: "UGT_SHOW_TTS_OVERLAY"
-      }, { frameId: info.frameId });
-      
-      try {
-        let base64Audio;
-        let mimeType;
-        
-        if (ttsProvider === 'google') {
-          // Google TTS
-          const apiKey = data.googleTtsApiKey;
-          const voiceId = data.googleTtsVoice || 'en-US-Studio-O';
-          const speakingRate = data.googleTtsSpeakingRate || 1.0;
-          const pitch = data.googleTtsPitch || 0;
-          
-          if (!apiKey) {
-            chrome.tabs.sendMessage(tab.id, { 
-              type: "UGT_SHOW_ERROR", 
-              message: "Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.",
-              errorContext: "API_KEY_ISSUE"
-            }, { frameId: info.frameId });
-            chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
-            return;
-          }
-          
-          base64Audio = await fetchFromGoogleTTS(info.selectionText, voiceId, apiKey, speakingRate, pitch);
-          mimeType = "audio/mp3";
-          
-        } else {
-          // ElevenLabs TTS
-          const apiKey = data.elevenlabsApiKey;
-          const customVoiceId = data.elevenlabsCustomVoiceId || '';
-          const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM";
-          const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
-          const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
-          
-          if (!apiKey) {
-            chrome.tabs.sendMessage(tab.id, { 
-              type: "UGT_SHOW_ERROR", 
-              message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
-              errorContext: "API_KEY_ISSUE"
-            }, { frameId: info.frameId });
-            chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
-            return;
-          }
-          
-          base64Audio = await fetchFromElevenLabs(info.selectionText, voiceId, apiKey, modelId);
-          mimeType = "audio/mpeg";
-        }
-        
-        // Send audio to content script for playback
-        chrome.tabs.sendMessage(tab.id, { 
-          type: "PLAY_TTS_AUDIO",
-          audio: base64Audio,
-          mimeType: mimeType
-        }, { frameId: info.frameId }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
-          }
-        });
-        
-      } catch (error) {
-        const providerName = ttsProvider === 'google' ? 'Google TTS' : 'ElevenLabs';
-        console.error(`${providerName} TTS error:`, error);
-        chrome.tabs.sendMessage(tab.id, { 
-          type: "UGT_SHOW_ERROR", 
-          message: `${providerName} TTS error: ${error.message}`,
-          errorContext: "API_KEY_ISSUE"
-        }, { frameId: info.frameId });
-        
-        // Hide overlay on error
-        chrome.tabs.sendMessage(tab.id, { 
-          type: "UGT_HIDE_TTS_OVERLAY"
-        }, { frameId: info.frameId });
+    // Get selection text - either from context menu or by querying the page
+    getSelectionText(info, tab).then(selectionText => {
+      if (!selectionText) {
+        showNoSelectionWarning();
+        return;
       }
+      
+      chrome.storage.local.get([
+        'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
+        'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
+      ], async (data) => {
+        const ttsProvider = data.ttsProvider || 'elevenlabs';
+        
+        // Show TTS overlay
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_TTS_OVERLAY"
+        }, { frameId: info.frameId });
+        
+        try {
+          let base64Audio;
+          let mimeType;
+          
+          if (ttsProvider === 'google') {
+            // Google TTS
+            const apiKey = data.googleTtsApiKey;
+            const voiceId = data.googleTtsVoice || 'en-US-Studio-O';
+            const speakingRate = data.googleTtsSpeakingRate || 1.0;
+            const pitch = data.googleTtsPitch || 0;
+            
+            if (!apiKey) {
+              chrome.tabs.sendMessage(tab.id, { 
+                type: "UGT_SHOW_ERROR", 
+                message: "Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.",
+                errorContext: "API_KEY_ISSUE"
+              }, { frameId: info.frameId });
+              chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              return;
+            }
+            
+            base64Audio = await fetchFromGoogleTTS(selectionText, voiceId, apiKey, speakingRate, pitch);
+            mimeType = "audio/mp3";
+            
+          } else {
+            // ElevenLabs TTS
+            const apiKey = data.elevenlabsApiKey;
+            const customVoiceId = data.elevenlabsCustomVoiceId || '';
+            const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM";
+            const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
+            const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
+            
+            if (!apiKey) {
+              chrome.tabs.sendMessage(tab.id, { 
+                type: "UGT_SHOW_ERROR", 
+                message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
+                errorContext: "API_KEY_ISSUE"
+              }, { frameId: info.frameId });
+              chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              return;
+            }
+            
+            base64Audio = await fetchFromElevenLabs(selectionText, voiceId, apiKey, modelId);
+            mimeType = "audio/mpeg";
+          }
+          
+          // Send audio to content script for playback
+          chrome.tabs.sendMessage(tab.id, { 
+            type: "PLAY_TTS_AUDIO",
+            audio: base64Audio,
+            mimeType: mimeType
+          }, { frameId: info.frameId }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
+            }
+          });
+          
+        } catch (error) {
+          const providerName = ttsProvider === 'google' ? 'Google TTS' : 'ElevenLabs';
+          console.error(`${providerName} TTS error:`, error);
+          chrome.tabs.sendMessage(tab.id, { 
+            type: "UGT_SHOW_ERROR", 
+            message: `${providerName} TTS error: ${error.message}`,
+            errorContext: "API_KEY_ISSUE"
+          }, { frameId: info.frameId });
+          
+          // Hide overlay on error
+          chrome.tabs.sendMessage(tab.id, { 
+            type: "UGT_HIDE_TTS_OVERLAY"
+          }, { frameId: info.frameId });
+        }
+      });
     });
     return;
   }
   
   // Handle Create Lesson menu item
-  if (info.menuItemId === CONTEXT_MENU_LESSON && info.selectionText) {
+  if (info.menuItemId === CONTEXT_MENU_LESSON) {
     // Check if the page is restricted before attempting to create lesson
     if (isRestrictedUrl(tab.url)) {
       showRestrictedPageWarning(tab.url, 'lesson');
       return;
     }
     
-    chrome.storage.local.get(['lessonPrompt'], (data) => {
-      const lessonPrompt = data.lessonPrompt || defaultLessonPrompt;
+    // Get selection text - either from context menu or by querying the page
+    getSelectionText(info, tab).then(selectionText => {
+      if (!selectionText) {
+        showNoSelectionWarning();
+        return;
+      }
       
-      // Send to content script
-      chrome.tabs.sendMessage(tab.id, { 
-        type: "CREATE_LESSON",
-        text: info.selectionText,
-        lessonPrompt: lessonPrompt
-      }, { frameId: info.frameId }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(`Error sending CREATE_LESSON to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
-        }
+      chrome.storage.local.get(['lessonPrompt'], (data) => {
+        const lessonPrompt = data.lessonPrompt || defaultLessonPrompt;
+        
+        // Send to content script
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "CREATE_LESSON",
+          text: selectionText,
+          lessonPrompt: lessonPrompt
+        }, { frameId: info.frameId }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(`Error sending CREATE_LESSON to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+          }
+        });
       });
     });
     return;
