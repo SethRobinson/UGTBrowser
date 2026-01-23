@@ -91,6 +91,9 @@ const defaultPrompts = {
 // Track active streaming ports for heartbeat responses
 const activeStreamingPorts = new Map();
 
+// Track active chat sessions for cancellation
+const activeChatSessions = new Map(); // sessionId -> { abortController, tabId, frameId }
+
 // Add these variables to store the last request and response
 let lastLLMRequest = null;
 let lastLLMResponse = null;
@@ -559,30 +562,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       
+      // Create abort controller for this chat session
+      const abortController = new AbortController();
+      activeChatSessions.set(sessionId, {
+        abortController: abortController,
+        tabId: sender.tab.id,
+        frameId: sender.frameId
+      });
+      
       // Build the chat prompt with context
       const chatPrompt = buildChatPrompt(question, originalText, culturalNuances, chatHistory, translatedText);
       
       try {
-        // Use streaming for chat responses - pass sessionId for routing
-        await fetchChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId);
+        // Use streaming for chat responses - pass sessionId and abortController for routing and cancellation
+        await fetchChatStreaming(chatPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId, abortController.signal);
         
-        // Send completion message with sessionId
-        chrome.tabs.sendMessage(sender.tab.id, { 
-          type: "CHAT_STREAM_COMPLETE",
-          sessionId: sessionId
-        }, { frameId: sender.frameId });
+        // Send completion message with sessionId (only if not aborted)
+        if (!abortController.signal.aborted) {
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "CHAT_STREAM_COMPLETE",
+            sessionId: sessionId
+          }, { frameId: sender.frameId });
+        }
         
       } catch (error) {
-        console.error("Chat followup error:", error);
-        chrome.tabs.sendMessage(sender.tab.id, { 
-          type: "CHAT_STREAM_ERROR", 
-          sessionId: sessionId,
-          error: error.message || String(error)
-        }, { frameId: sender.frameId });
+        // Don't send error if it was an intentional abort
+        if (error.name === 'AbortError') {
+          console.log(`Chat session ${sessionId} was cancelled`);
+        } else {
+          console.error("Chat followup error:", error);
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "CHAT_STREAM_ERROR", 
+            sessionId: sessionId,
+            error: error.message || String(error)
+          }, { frameId: sender.frameId });
+        }
+      } finally {
+        // Clean up the session
+        activeChatSessions.delete(sessionId);
       }
     });
     
     sendResponse({ status: "chat_started", sessionId: sessionId });
+    return true;
+  } else if (message.type === "CHAT_CANCEL") {
+    // Handle chat cancellation
+    const { sessionId } = message.payload;
+    console.log(`Received CHAT_CANCEL for session: ${sessionId}`);
+    
+    const chatSession = activeChatSessions.get(sessionId);
+    if (chatSession && chatSession.abortController) {
+      chatSession.abortController.abort();
+      activeChatSessions.delete(sessionId);
+      console.log(`Cancelled chat session: ${sessionId}`);
+    }
+    
+    sendResponse({ status: "cancelled", sessionId: sessionId });
     return true;
   }
 });
@@ -630,10 +665,13 @@ Please provide a helpful, concise answer. If the question relates to the transla
 }
 
 // Streaming chat function for follow-up questions
-async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null) {
+async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null, abortSignal = null) {
   console.log(`Starting chat streaming for provider: ${provider}, sessionId: ${sessionId}`);
   
   const sendChunk = (chunk) => {
+    // Don't send if aborted
+    if (abortSignal && abortSignal.aborted) return;
+    
     chrome.tabs.sendMessage(tabId, { 
       type: "CHAT_STREAM_CHUNK", 
       sessionId: sessionId,
@@ -643,13 +681,13 @@ async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameI
   
   switch (provider) {
     case "openai":
-      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings);
+      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
       break;
     case "anthropic":
-      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk);
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal);
       break;
     case "gemini":
-      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings);
+      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -657,7 +695,7 @@ async function fetchChatStreaming(prompt, provider, model, apiKey, tabId, frameI
 }
 
 // OpenAI chat streaming
-async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings = {}) {
+async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
   const modelToUse = model || "gpt-4o";
@@ -679,7 +717,8 @@ async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, se
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`
     },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal: abortSignal
   });
   
   if (!response.ok) {
@@ -693,6 +732,11 @@ async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, se
   
   try {
     while (true) {
+      // Check if aborted
+      if (abortSignal && abortSignal.aborted) {
+        break;
+      }
+      
       const { done, value } = await reader.read();
       if (done) break;
       
@@ -721,7 +765,7 @@ async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, se
 }
 
 // Anthropic chat streaming
-async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk) {
+async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal = null) {
   if (!apiKey) throw new Error("Anthropic API key is required");
   
   const modelToUse = model || "claude-sonnet-4-5";
@@ -751,7 +795,8 @@ async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk)
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal: abortSignal
   });
   
   if (!response.ok) {
@@ -765,6 +810,11 @@ async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk)
   
   try {
     while (true) {
+      // Check if aborted
+      if (abortSignal && abortSignal.aborted) {
+        break;
+      }
+      
       const { done, value } = await reader.read();
       if (done) break;
       
@@ -796,7 +846,7 @@ async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk)
 }
 
 // Gemini chat streaming
-async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings = {}) {
+async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   const modelId = model || "gemini-1.5-pro";
@@ -815,7 +865,8 @@ async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, se
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal: abortSignal
   });
   
   if (!response.ok) {
@@ -830,6 +881,11 @@ async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, se
   
   try {
     while (true) {
+      // Check if aborted
+      if (abortSignal && abortSignal.aborted) {
+        break;
+      }
+      
       const { done, value } = await reader.read();
       if (done) break;
       

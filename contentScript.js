@@ -29,7 +29,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let ttsAudioElement = null;
 
   // Chat context for follow-up questions - now stored per-session to support multiple concurrent chats
-  const chatSessions = new Map(); // Map of sessionId -> { originalText, culturalNuances, chatHistory, container, isStreaming, providerName }
+  const chatSessions = new Map(); // Map of sessionId -> { originalText, translatedText, culturalNuances, chatHistory, container, isStreaming, providerName, abortController }
   
   // Generate a unique session ID for chat
   function generateChatSessionId() {
@@ -244,7 +244,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       chatHistory: [],
       container: container,
       isStreaming: false,
-      providerName: ''
+      providerName: '',
+      cancelRequested: false // Flag to signal cancellation
     };
     chatSessions.set(sessionId, sessionContext);
     
@@ -330,16 +331,48 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     sendButton.addEventListener('mouseenter', () => {
       const currentSession = chatSessions.get(sessionId);
-      if (!currentSession?.isStreaming) {
+      if (currentSession?.isStreaming) {
+        sendButton.style.backgroundColor = '#dc2626'; // Darker red on hover when Stop
+      } else {
         sendButton.style.backgroundColor = '#5a7be0';
       }
     });
     sendButton.addEventListener('mouseleave', () => {
       const currentSession = chatSessions.get(sessionId);
-      if (!currentSession?.isStreaming) {
+      if (currentSession?.isStreaming) {
+        sendButton.style.backgroundColor = '#ef4444'; // Red when Stop
+      } else {
         sendButton.style.backgroundColor = '#6b8afd';
       }
     });
+    
+    // Handle cancel action
+    const cancelRequest = () => {
+      const currentSession = chatSessions.get(sessionId);
+      if (!currentSession || !currentSession.isStreaming) return;
+      
+      // Set cancel flag
+      currentSession.cancelRequested = true;
+      
+      // Send cancel message to background
+      chrome.runtime.sendMessage({
+        type: 'CHAT_CANCEL',
+        payload: { sessionId: sessionId }
+      });
+      
+      // Find the streaming message and mark it as cancelled
+      const streamingMsg = currentSession.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+      if (streamingMsg) {
+        const currentContent = streamingMsg.dataset.content || '';
+        const cancelledContent = currentContent + (currentContent ? '\n\n' : '') + '_[Generation stopped by user]_';
+        finishChatResponse(streamingMsg, cancelledContent, false, sessionId);
+        
+        // Add to chat history
+        currentSession.chatHistory.push({ role: 'assistant', content: cancelledContent });
+      }
+      
+      resetChatInputState(chatInput, sendButton, sessionId);
+    };
     
     // Handle send action
     const sendMessage = () => {
@@ -349,6 +382,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const currentSession = chatSessions.get(sessionId);
       if (!question || !currentSession || currentSession.isStreaming) return;
       
+      // Reset cancel flag
+      currentSession.cancelRequested = false;
+      
       // Add user message to history
       addChatMessage(chatHistory, 'user', question, sessionId);
       currentSession.chatHistory.push({ role: 'user', content: question });
@@ -356,11 +392,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       // Clear input
       chatInput.value = '';
       
-      // Show loading state
+      // Show loading state - transform to Stop button
       currentSession.isStreaming = true;
-      sendButton.textContent = '...';
-      sendButton.style.backgroundColor = '#9ca3af';
-      sendButton.style.cursor = 'not-allowed';
+      sendButton.textContent = 'Stop';
+      sendButton.style.backgroundColor = '#ef4444';
+      sendButton.style.cursor = 'pointer';
+      sendButton.title = 'Stop generation';
       chatInput.disabled = true;
       
       // Create placeholder for assistant response
@@ -388,7 +425,15 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       });
     };
     
-    sendButton.addEventListener('click', sendMessage);
+    // Button click handler - Send or Stop depending on state
+    sendButton.addEventListener('click', () => {
+      const currentSession = chatSessions.get(sessionId);
+      if (currentSession && currentSession.isStreaming) {
+        cancelRequest();
+      } else {
+        sendMessage();
+      }
+    });
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         sendMessage();
@@ -454,7 +499,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
     const historyContainer = msgDiv.parentElement;
     if (historyContainer) {
-      historyContainer.scrollTop = historyContainer.scrollHeight;
+      // Only auto-scroll if user is already near the bottom (within 100px)
+      // This allows users to scroll up and read while streaming continues
+      const isNearBottom = historyContainer.scrollHeight - historyContainer.scrollTop - historyContainer.clientHeight < 100;
+      if (isNearBottom) {
+        historyContainer.scrollTop = historyContainer.scrollHeight;
+      }
     }
   }
   
@@ -462,14 +512,29 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   function finishChatResponse(msgDiv, content, isError = false, sessionId = null) {
     if (!msgDiv) return;
     
+    const htmlContent = simpleMarkdownToHtml(content);
+    
     if (isError) {
       msgDiv.innerHTML = `<strong style="color: #ef4444;">Error:</strong> <span style="color: #ef4444;">${escapeHtml(content)}</span>`;
     } else {
-      msgDiv.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+      // Create content wrapper
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'ugt-message-content';
+      contentWrapper.innerHTML = `<strong style="color: #6b8afd;">AI:</strong> ${htmlContent}`;
+      
+      // Clear and rebuild the message div
+      msgDiv.innerHTML = '';
+      msgDiv.appendChild(contentWrapper);
+      
+      // Add action buttons for non-error responses
+      const actionButtons = createMessageActionButtons(content, htmlContent);
+      msgDiv.appendChild(actionButtons);
     }
     
     delete msgDiv.dataset.streaming;
     delete msgDiv.dataset.sessionId;
+    delete msgDiv.dataset.content;
+    
     const historyContainer = msgDiv.parentElement;
     if (historyContainer) {
       historyContainer.scrollTop = historyContainer.scrollHeight;
@@ -483,11 +548,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const sessionContext = chatSessions.get(sessionId);
       if (sessionContext) {
         sessionContext.isStreaming = false;
+        sessionContext.cancelRequested = false;
       }
     }
     sendButton.textContent = 'Send';
     sendButton.style.backgroundColor = '#6b8afd';
     sendButton.style.cursor = 'pointer';
+    sendButton.title = '';
     chatInput.disabled = false;
     chatInput.focus();
   }
@@ -497,6 +564,155 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+  
+  // Copy text to clipboard with visual feedback
+  async function copyToClipboard(text, feedbackElement = null) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (feedbackElement) {
+        const originalText = feedbackElement.textContent;
+        feedbackElement.textContent = '✓';
+        feedbackElement.style.color = '#10b981';
+        setTimeout(() => {
+          feedbackElement.textContent = originalText;
+          feedbackElement.style.color = '';
+        }, 1500);
+      }
+      return true;
+    } catch (e) {
+      console.error('Failed to copy to clipboard:', e);
+      return false;
+    }
+  }
+  
+  // Open content in a new browser tab (fullscreen view)
+  function openInNewTab(htmlContent) {
+    const newWindow = window.open('', '_blank');
+    if (newWindow) {
+      newWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>UGTBrowser - AI Response</title>
+          <meta charset="UTF-8">
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              margin: 0;
+              padding: 24px 32px;
+              line-height: 1.7;
+              color: #374151;
+              background: #ffffff;
+              min-height: 100vh;
+            }
+            h1, h2, h3, h4, h5, h6 { color: #1f2937; margin-top: 1.2em; margin-bottom: 0.5em; }
+            h1 { font-size: 1.8em; }
+            h2 { font-size: 1.5em; }
+            h3 { font-size: 1.25em; }
+            p { margin: 0.8em 0; }
+            pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 1em 0; }
+            code { font-family: 'Consolas', 'Monaco', monospace; }
+            ul, ol { padding-left: 1.5em; margin: 0.8em 0; }
+            li { margin: 0.4em 0; }
+            strong { color: #1f2937; }
+            a { color: #4f7cff; }
+            blockquote { border-left: 4px solid #6b8afd; margin: 1em 0; padding: 0.5em 1em; background: #f8f9ff; }
+            table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+            th, td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+            th { background: #f9fafb; }
+            @media print {
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+        <body>${htmlContent}</body>
+        </html>
+      `);
+      newWindow.document.close();
+    }
+  }
+  
+  // Create action buttons for AI messages (copy, open in new tab)
+  function createMessageActionButtons(rawContent, htmlContent) {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'ugt-message-actions';
+    Object.assign(actionsDiv.style, {
+      display: 'flex',
+      gap: '6px',
+      marginTop: '8px',
+      paddingTop: '8px',
+      borderTop: '1px solid rgba(0,0,0,0.06)'
+    });
+    
+    // Copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'ugt-action-btn ugt-copy-btn';
+    copyBtn.innerHTML = '📋';
+    copyBtn.title = 'Copy to clipboard';
+    Object.assign(copyBtn.style, {
+      padding: '4px 8px',
+      fontSize: '14px',
+      backgroundColor: 'transparent',
+      border: '1px solid #e5e7eb',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      lineHeight: '1'
+    });
+    copyBtn.addEventListener('mouseenter', () => {
+      copyBtn.style.backgroundColor = '#f3f4f6';
+      copyBtn.style.borderColor = '#d1d5db';
+    });
+    copyBtn.addEventListener('mouseleave', () => {
+      copyBtn.style.backgroundColor = 'transparent';
+      copyBtn.style.borderColor = '#e5e7eb';
+    });
+    copyBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const success = await copyToClipboard(rawContent);
+      if (success) {
+        copyBtn.innerHTML = '✓';
+        copyBtn.style.color = '#10b981';
+        setTimeout(() => {
+          copyBtn.innerHTML = '📋';
+          copyBtn.style.color = '';
+        }, 1500);
+      }
+    });
+    actionsDiv.appendChild(copyBtn);
+    
+    // Open in new tab button
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'ugt-action-btn ugt-expand-btn';
+    expandBtn.innerHTML = '↗';
+    expandBtn.title = 'Open in new tab';
+    Object.assign(expandBtn.style, {
+      padding: '4px 8px',
+      fontSize: '14px',
+      backgroundColor: 'transparent',
+      border: '1px solid #e5e7eb',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      lineHeight: '1'
+    });
+    expandBtn.addEventListener('mouseenter', () => {
+      expandBtn.style.backgroundColor = '#f3f4f6';
+      expandBtn.style.borderColor = '#d1d5db';
+    });
+    expandBtn.addEventListener('mouseleave', () => {
+      expandBtn.style.backgroundColor = 'transparent';
+      expandBtn.style.borderColor = '#e5e7eb';
+    });
+    expandBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openInNewTab(htmlContent);
+    });
+    actionsDiv.appendChild(expandBtn);
+    
+    return actionsDiv;
   }
 
   // Helper function to get the content of the innermost/last valid segment for a given ID
@@ -823,7 +1039,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
       
       const sessionContext = chatSessions.get(sessionId);
-      if (sessionContext && sessionContext.isStreaming && sessionContext.container) {
+      // Ignore chunks if cancel was requested
+      if (sessionContext && sessionContext.isStreaming && sessionContext.container && !sessionContext.cancelRequested) {
         // Find the streaming message element by both streaming status AND session ID
         const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
         if (streamingMsg) {
@@ -843,7 +1060,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
       
       const sessionContext = chatSessions.get(sessionId);
-      if (sessionContext && sessionContext.container) {
+      // Ignore completion if already cancelled (was handled locally)
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
         const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
         const chatInput = sessionContext.container.querySelector('.ugt-chat-input');
         const sendButton = sessionContext.container.querySelector('.ugt-chat-send');
@@ -869,7 +1087,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
       
       const sessionContext = chatSessions.get(sessionId);
-      if (sessionContext && sessionContext.container) {
+      // Ignore errors if already cancelled (was handled locally)
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
         const streamingMsg = sessionContext.container.querySelector(`.ugt-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
         const chatInput = sessionContext.container.querySelector('.ugt-chat-input');
         const sendButton = sessionContext.container.querySelector('.ugt-chat-send');
