@@ -24,6 +24,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   let lastTranslatedElement = null; // To track the last element where translation was inserted
   let currentTranslationBatchId = null; // Track current translation batch for toggle feature
   
+  // Cultural nuances streaming variables
+  let expectedSegmentIds = new Set(); // Track which segments we expect to translate
+  let translatedSegmentIds = new Set(); // Track which segments have received translations
+  let culturalNuancesContainer = null; // Container for streaming cultural nuances
+  let culturalNuancesContent = null; // Content wrapper inside the container
+  
   // TTS-specific variables
   let ttsOverlayDiv = null;
   let ttsAudioElement = null;
@@ -820,6 +826,71 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   }
 
+  // Create the cultural nuances container for streaming
+  function createCulturalNuancesContainer() {
+    if (culturalNuancesContainer) return; // Already created
+    if (!lastTranslatedElement) return; // No translation element to attach to
+    
+    culturalNuancesContainer = document.createElement('div');
+    culturalNuancesContainer.className = 'ugt-cultural-nuances';
+    
+    // Create a content wrapper for the cultural nuances text
+    culturalNuancesContent = document.createElement('div');
+    culturalNuancesContent.className = 'ugt-cultural-nuances-content';
+    culturalNuancesContainer.appendChild(culturalNuancesContent);
+    
+    // Enhanced styling for cultural nuances container
+    Object.assign(culturalNuancesContainer.style, {
+      marginLeft: '0',
+      marginTop: '12px',
+      marginBottom: '8px',
+      padding: '14px 18px',
+      borderLeft: '4px solid #6b8afd',
+      backgroundColor: '#f8f9ff',
+      borderRadius: '0 8px 8px 0',
+      boxShadow: '0 2px 8px rgba(107, 138, 253, 0.12)',
+      color: '#2d3748',
+      fontSize: '14px',
+      lineHeight: '1.6',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      maxWidth: '100%',
+      boxSizing: 'border-box'
+    });
+    
+    // Find the appropriate insertion point - must be OUTSIDE any anchor elements
+    let insertionParent = lastTranslatedElement.parentNode;
+    let insertAfter = lastTranslatedElement;
+    
+    // Walk up the DOM tree to find if we're inside an anchor element
+    let currentElement = lastTranslatedElement;
+    while (currentElement && currentElement !== document.body) {
+      if (currentElement.tagName === 'A') {
+        insertionParent = currentElement.parentNode;
+        insertAfter = currentElement;
+        break;
+      }
+      currentElement = currentElement.parentNode;
+    }
+    
+    // Skip past the "Toggle All" button if it exists
+    let insertBeforeRef = insertAfter.nextSibling;
+    if (insertBeforeRef && insertBeforeRef.classList && insertBeforeRef.classList.contains('ugt-toggle-all-btn')) {
+      insertBeforeRef = insertBeforeRef.nextSibling;
+    }
+    
+    if (insertionParent) {
+      insertionParent.insertBefore(culturalNuancesContainer, insertBeforeRef);
+    } else {
+      document.body.appendChild(culturalNuancesContainer);
+    }
+  }
+  
+  // Update the cultural nuances content with streaming text
+  function updateCulturalNuancesContent(text) {
+    if (!culturalNuancesContent) return;
+    culturalNuancesContent.innerHTML = simpleMarkdownToHtml(text);
+  }
+
   // Check if any segments in a batch actually changed and need a toggle
   function batchHasChangedSegments(batchId) {
     const segments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
@@ -1197,6 +1268,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               targetSpan.textContent = finalTranslatedContent;
               targetSpan.setAttribute('data-translated-text', finalTranslatedContent); // Store for toggle feature
               lastTranslatedElement = targetSpan; // Update last translated element
+              
+              // Track this segment as translated for cultural nuances streaming
+              translatedSegmentIds.add(ugtId);
             } else {
               console.warn(`No placeholder span found for ugt_id: ${ugtId}`);
             }
@@ -1206,6 +1280,46 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           // Remove processed part from buffer
           if (lastIndex > 0) {
             streamBuffer = streamBuffer.substring(lastIndex);
+          }
+          
+          // Check if all expected segments are translated - if so, stream cultural nuances
+          if (expectedSegmentIds.size > 0 && translatedSegmentIds.size >= expectedSegmentIds.size) {
+            // All translations received, any remaining buffer content is cultural nuances
+            const extraText = streamBuffer.trim();
+            if (extraText && !extraText.startsWith('<ugt_')) {
+              // Create cultural nuances container if not exists
+              if (!culturalNuancesContainer) {
+                // Add "Toggle All" button first if there are segments that changed
+                if (lastTranslatedElement && currentTranslationBatchId && batchHasChangedSegments(currentTranslationBatchId)) {
+                  const existingToggleBtn = document.querySelector(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
+                  if (!existingToggleBtn) {
+                    const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
+                    
+                    // Find insertion point - outside any anchor elements
+                    let toggleInsertionParent = lastTranslatedElement.parentNode;
+                    let toggleInsertAfter = lastTranslatedElement;
+                    
+                    let currentEl = lastTranslatedElement;
+                    while (currentEl && currentEl !== document.body) {
+                      if (currentEl.tagName === 'A') {
+                        toggleInsertionParent = currentEl.parentNode;
+                        toggleInsertAfter = currentEl;
+                        break;
+                      }
+                      currentEl = currentEl.parentNode;
+                    }
+                    
+                    if (toggleInsertionParent) {
+                      toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+                    }
+                  }
+                }
+                createCulturalNuancesContainer();
+              }
+              
+              // Update cultural nuances content with streaming text
+              updateCulturalNuancesContent(extraText);
+            }
           }
           
           currentStreamingText = streamBuffer; // Update currentStreamingText for live preview
@@ -1305,44 +1419,51 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           }
           streamBuffer = streamBuffer.substring(lastIndex); // Remove processed parts
           
-          // Add "Toggle All" button if there are segments that changed
+          // Add "Toggle All" button if there are segments that changed (and not already added during streaming)
           if (lastTranslatedElement && currentTranslationBatchId && batchHasChangedSegments(currentTranslationBatchId)) {
-            const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
-            
-            // Find insertion point - outside any anchor elements
-            let toggleInsertionParent = lastTranslatedElement.parentNode;
-            let toggleInsertAfter = lastTranslatedElement;
-            
-            let currentEl = lastTranslatedElement;
-            while (currentEl && currentEl !== document.body) {
-              if (currentEl.tagName === 'A') {
-                toggleInsertionParent = currentEl.parentNode;
-                toggleInsertAfter = currentEl;
-                break;
+            const existingToggleBtn = document.querySelector(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
+            if (!existingToggleBtn) {
+              const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
+              
+              // Find insertion point - outside any anchor elements
+              let toggleInsertionParent = lastTranslatedElement.parentNode;
+              let toggleInsertAfter = lastTranslatedElement;
+              
+              let currentEl = lastTranslatedElement;
+              while (currentEl && currentEl !== document.body) {
+                if (currentEl.tagName === 'A') {
+                  toggleInsertionParent = currentEl.parentNode;
+                  toggleInsertAfter = currentEl;
+                  break;
+                }
+                currentEl = currentEl.parentNode;
               }
-              currentEl = currentEl.parentNode;
-            }
-            
-            if (toggleInsertionParent) {
-              toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+              
+              if (toggleInsertionParent) {
+                toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+              }
             }
           }
           
-          if (streamBuffer.length > 0 && lastTranslatedElement) {
-            const extraText = streamBuffer.trim();
-            if (extraText) {
-              //console.log("Appending extra text after last translation:", extraText);
-              const extraTextContainer = document.createElement('div');
-              extraTextContainer.className = 'ugt-cultural-nuances';
+          // Handle cultural nuances - either update existing container or create new one
+          const extraText = streamBuffer.trim();
+          if (extraText && lastTranslatedElement) {
+            // Use existing container if created during streaming, otherwise create new one
+            let containerToUse = culturalNuancesContainer;
+            
+            if (!containerToUse) {
+              // Create new container if not created during streaming
+              containerToUse = document.createElement('div');
+              containerToUse.className = 'ugt-cultural-nuances';
               
               // Create a content wrapper for the cultural nuances text
               const contentWrapper = document.createElement('div');
               contentWrapper.className = 'ugt-cultural-nuances-content';
               contentWrapper.innerHTML = simpleMarkdownToHtml(extraText);
-              extraTextContainer.appendChild(contentWrapper);
+              containerToUse.appendChild(contentWrapper);
               
               // Enhanced styling for cultural nuances container
-              Object.assign(extraTextContainer.style, {
+              Object.assign(containerToUse.style, {
                 marginLeft: '0',
                 marginTop: '12px',
                 marginBottom: '8px',
@@ -1360,15 +1481,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               });
               
               // Find the appropriate insertion point - must be OUTSIDE any anchor elements
-              // to prevent link activation when clicking on the cultural nuances area
               let insertionParent = lastTranslatedElement.parentNode;
               let insertAfter = lastTranslatedElement;
               
-              // Walk up the DOM tree to find if we're inside an anchor element
               let currentElement = lastTranslatedElement;
               while (currentElement && currentElement !== document.body) {
                 if (currentElement.tagName === 'A') {
-                  // Found an anchor - insert after it instead of inside it
                   insertionParent = currentElement.parentNode;
                   insertAfter = currentElement;
                   break;
@@ -1383,54 +1501,56 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               }
               
               if (insertionParent) {
-                insertionParent.insertBefore(extraTextContainer, insertBeforeRef);
+                insertionParent.insertBefore(containerToUse, insertBeforeRef);
               } else {
-                // Fallback: append to body if somehow lost its parent
-                document.body.appendChild(extraTextContainer);
+                document.body.appendChild(containerToUse);
                 console.warn("Last translated element had no parent, appended extra text to body.");
               }
-              
-              // Create chat interface (session context is created inside)
-              const chatElements = createChatInterface(extraTextContainer, extraText);
-              
-              // Update the session context with translation info
-              const chatSessionId = extraTextContainer.dataset.chatSessionId;
-              if (chatSessionId) {
-                const sessionContext = chatSessions.get(chatSessionId);
-                if (sessionContext) {
-                  // Collect the ORIGINAL text (before translation) from the translated spans
-                  // This is what users want to see in follow-up questions for learning purposes
-                  let collectedOriginalText = "";
-                  let collectedTranslatedText = "";
-                  if (currentTranslationBatchId) {
-                    const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
-                    const originalTexts = [];
-                    const translatedTexts = [];
-                    batchSegments.forEach(span => {
-                      const originalText = span.getAttribute('data-original-text');
-                      const translatedText = span.getAttribute('data-translated-text');
-                      if (originalText && originalText.trim()) {
-                        originalTexts.push(originalText.trim());
-                      }
-                      if (translatedText && translatedText.trim()) {
-                        translatedTexts.push(translatedText.trim());
-                      }
-                    });
-                    collectedOriginalText = originalTexts.join(' ');
-                    collectedTranslatedText = translatedTexts.join(' ');
-                  }
-                  
-                  sessionContext.originalText = collectedOriginalText || '';
-                  sessionContext.translatedText = collectedTranslatedText || fullyAssembledTranslation.trim();
-                  // Get provider name from settings (capitalize first letter)
-                  const provider = currentTranslationSettings?.provider || 'AI';
-                  sessionContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+            } else {
+              // Container exists from streaming - finalize the content
+              updateCulturalNuancesContent(extraText);
+            }
+            
+            // Create chat interface if not already present
+            if (!containerToUse.querySelector('.ugt-chat-section')) {
+              const chatElements = createChatInterface(containerToUse, extraText);
+            }
+            
+            // Update the session context with translation info
+            const chatSessionId = containerToUse.dataset.chatSessionId;
+            if (chatSessionId) {
+              const sessionContext = chatSessions.get(chatSessionId);
+              if (sessionContext) {
+                // Collect the ORIGINAL text (before translation) from the translated spans
+                let collectedOriginalText = "";
+                let collectedTranslatedText = "";
+                if (currentTranslationBatchId) {
+                  const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                  const originalTexts = [];
+                  const translatedTexts = [];
+                  batchSegments.forEach(span => {
+                    const originalText = span.getAttribute('data-original-text');
+                    const translatedText = span.getAttribute('data-translated-text');
+                    if (originalText && originalText.trim()) {
+                      originalTexts.push(originalText.trim());
+                    }
+                    if (translatedText && translatedText.trim()) {
+                      translatedTexts.push(translatedText.trim());
+                    }
+                  });
+                  collectedOriginalText = originalTexts.join(' ');
+                  collectedTranslatedText = translatedTexts.join(' ');
                 }
+                
+                sessionContext.originalText = collectedOriginalText || '';
+                sessionContext.translatedText = collectedTranslatedText || fullyAssembledTranslation.trim();
+                // Get provider name from settings (capitalize first letter)
+                const provider = currentTranslationSettings?.provider || 'AI';
+                sessionContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
               }
             }
           } else if (streamBuffer.length > 0) {
             // This case means there's extra text, but no translation happened (lastTranslatedElement is null)
-            // or the logic for setting lastTranslatedElement failed.
             console.warn("Stream complete, buffer has remaining unparsed content, but no last translated element to append to:", streamBuffer);
           }
           streamBuffer = ""; // Clear buffer
@@ -1602,6 +1722,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     // Generate a unique batch ID for this translation request (for toggle feature)
     currentTranslationBatchId = generateId();
+    
+    // Reset cultural nuances streaming state
+    expectedSegmentIds = new Set();
+    translatedSegmentIds = new Set();
+    culturalNuancesContainer = null;
+    culturalNuancesContent = null;
 
     // Use a TreeWalker to find all text nodes within the cloned fragment
     const walker = document.createTreeWalker(originalFragmentClone, NodeFilter.SHOW_TEXT, null, false);
@@ -1620,6 +1746,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const idForLLMPrompt = `ugt_${uniqueIdCore}`; // This is the ugt_id prefix for the prompt
 
       segmentsToTranslate.push(`${idForLLMPrompt}: ${originalText.trim()}`);
+      expectedSegmentIds.add(uniqueIdCore); // Track expected segment for cultural nuances streaming
 
       const span = document.createElement('span');
       span.setAttribute('data-ugt-id', uniqueIdCore); // The span data-id does not have "ugt_" prefix
@@ -1650,6 +1777,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     range.deleteContents();
     range.insertNode(originalFragmentClone);
     initialInsertionHasOccurred = true;
+    
+    // Clear the text selection so user doesn't have to click away
+    window.getSelection().removeAllRanges();
 
     streamingRange = range; 
     currentStreamingText = ""; // Initialize for the new translation stream
