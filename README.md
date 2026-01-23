@@ -7,18 +7,41 @@
 # UGTBrowser - Universal Game Translator Browser Extension
 
 </div>
-UGTBrowser is a Chrome extension that allows you to translate highlighted text on any webpage using your own API keys for various Large Language Model (LLM) providers.
-<br>
+
+A Chrome extension that translates or speaks highlighted text using your own LLM API keys (OpenAI, Anthropic, Google, Elevenlabs).
+
+# [Install from Chrome Web Store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
+
+### Manual Installation
+
+Useful if the Chrome Web Store hasn't updated to the latest version yet:
+
+1.  **Download:** [https://github.com/SethRobinson/UGTBrowser/archive/refs/heads/main.zip](https://github.com/SethRobinson/UGTBrowser/archive/refs/heads/main.zip)
+2.  **Unzip** the file to a folder
+3.  **Enable Developer Mode** in Chrome at `chrome://extensions`
+4.  **Load unpacked** and select the unzipped folder containing `manifest.json`
+
+## Features
+
+* **Translate** - High-quality AI translation that streams in-place and explains cultural context
+* **Text-to-Speech** - Have text read aloud via ElevenLabs or Google Cloud TTS
+* **Create Lesson** - Generate detailed language breakdowns with readings, meanings, and grammar notes
+* **Follow-up Chat** - Ask questions about the translated content
+
 <div align="center">
-  <a href="media/ugtbrowser_1.png"><img src="media/ugtbrowser_1.png" alt="UGTBrowser Screenshot 1" width="200"/></a>
-  <a href="media/ugtbrowser_2.png"><img src="media/ugtbrowser_2.png" alt="UGTBrowser Screenshot 2" width="200"/></a>
+  <a href="media/ugtbrowser_1.png"><img src="media/ugtbrowser_1.png" alt="Context menu and follow-up chat" width="400"/></a>
+  <a href="media/ugtbrowser_4.png"><img src="media/ugtbrowser_4.png" alt="Create Lesson feature" width="400"/></a>
+</div>
+<div align="center">
+  <a href="media/ugtbrowser_2.png"><img src="media/ugtbrowser_2.png" alt="Translation settings" width="400"/></a>
+  <a href="media/ugtbrowser_3.png"><img src="media/ugtbrowser_3.png" alt="Text-to-speech settings" width="400"/></a>
 </div>
 
-Also check out [UGTLive](https://github.com/SethRobinson/UGTLive) (Good at translating live video/audio, uses your NVidia GPU to do stuff locally, things a browser plugin can't)
+## How to Use
 
-## Quick install
-
-# [Install extension from Chrome Web Store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
+1. Highlight text on any webpage
+2. Right-click and select from the UGTBrowser menu: Translate, Speak, or Create Lesson
+3. Use the follow-up chat to ask questions about the content
 
 ## Why tho
 
@@ -32,72 +55,29 @@ I use a text-fragment approach that lets the LLM understand the full context (al
 
 Note:  I used "UGT" in the name because I might add more game-specific features later, so it's more like its [big brother](https://github.com/SethRobinson/UGTLive) project.
 
-## Features
-
-*   Translate selected text using the latest LLM models (Open, Anthropic, Google)
-* Support for a secondary "Creative task", for example, summarize everything into a poem at the end or explain cultural notes.
-*   Securely stores your API keys and settings locally in your browser. These are not synced with the cloud or other devices.
-*   Nothing is sent out except the text to the LLM providers you're using.
-*   Customizable prompt template for advanced users.
-*   Context menu integration for easy access.
-*   During translation, a little animation is shown with an option to see the text coming in.
-*   There is a way to see the last prompt/response pair in the settings, good for debugging.
-
-
 ## AI Disclosure
 
 This project was developed with significant assistance from AI tools.  I mean, you can still blame me (Seth) for bugs, but I just wanted to mention it.
 
-## Download & Installation
+## Version History
 
-### Installing from the Chrome Store
+**v2.0.0** (Current)
+* Added Text-to-Speech support (ElevenLabs and Google Cloud TTS)
+* Added Create Lesson feature for detailed language breakdowns
+* Added Follow-up Chat to ask questions about translated content
+* Lots of misc tweaks and fixes
 
-1.  **Download:** [Chrome web store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
-    *   (Recommended method for most users)
-
-### Installing Manually (for development or offline use)
-
-1.  **Download:** Download the latest version directly from GitHub: [https://github.com/SethRobinson/UGTBrowser/archive/refs/heads/main.zip](https://github.com/SethRobinson/UGTBrowser/archive/refs/heads/main.zip).
-    *   This will download a file like `UGTBrowser-main.zip`.
-2.  **Unzip the file:** Extract the contents of the downloaded ZIP file to a folder. This will create a folder typically named `UGTBrowser-main` (or similar, depending on the branch name).
-3.  **Enable Developer Mode in Chrome:**
-    *   Open Chrome and navigate to `chrome://extensions`.
-    *   Toggle the "Developer mode" switch in the top right corner.
-4.  **Load the Extension:**
-    *   Click on "Load unpacked".
-    *   Select the unzipped folder (e.g., `UGTBrowser-main`) that contains the `manifest.json` file.
-
-## How to Use
-
-1.  Highlight the text you want to translate on any webpage.
-2.  Right-click on the highlighted text.
-3.  Select "Translate to (language) with (provider) (UGTBrowser)" from the context menu.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+**v1.0.x**
+* Initial public release with core translation functionality
 
 ## Privacy
 
-Your privacy is important. UGTBrowser does not collect or store any personal data on its own servers. API keys and all settings are stored locally in your browser using `chrome.storage.local` and are not synced across devices. For more details, please see our [Privacy Policy](privacy_policy.md).
+API keys and settings are stored locally in your browser only. Nothing is sent except text to your chosen LLM provider. See [Privacy Policy](privacy_policy.md).
 
-## Todo
+## License
 
-* Make it work in Firefox - I tried to convert it using `browser-polyfill.min.js`, but it didn't work, so maybe later.
-* Possibly add other features its big brother UGTLive can do.
-
-## Bugs/Limitations
-
-* For security reasons, Chrome doesn't allow extensions to translate certain pages, such as those starting with `chrome://`. This is unfortunate because it means Chrome's reader view can't be translated by this extension.
-* Be aware that some models, like Gemini 2.5 Pro, are slower-thinking models, and it could take *minutes* to process a large translation.  Stick to Flash/Mini/Turbo models instead unless you REALLY value quality over speed.
+MIT License - see [LICENSE](LICENSE).
 
 ## Credits
 
-UGTBrowser is created by Seth A. Robinson.
-
-Connect with Seth:
-
-*   [Homepage](https://www.rtsoft.com/)
-*   [Blog](https://www.codedojo.com/)
-*   [Twitter](https://twitter.com/rtsoft)
-*   [Bluesky](https://bsky.app/profile/rtsoft.com) 
+Created by Seth A. Robinson - [Homepage](https://www.rtsoft.com/) | [Blog](https://www.codedojo.com/) | [Twitter](https://twitter.com/rtsoft) | [Bluesky](https://bsky.app/profile/rtsoft.com)
