@@ -277,11 +277,11 @@ function buildSpeakTitle(settings) {
 
 function createContextMenus(settings = {}) {
   chrome.contextMenus.removeAll(() => {
-    // Create parent menu item - show in BOTH selection and page contexts
+    // Create parent menu item - show for selection, page, and link contexts
     chrome.contextMenus.create({
       id: CONTEXT_MENU_PARENT,
       title: "UGTBrowser Language Tools",
-      contexts: ["selection", "page"]
+      contexts: ["selection", "page", "link"]
     });
     
     // Create Translate child item (only for selection)
@@ -308,21 +308,21 @@ function createContextMenus(settings = {}) {
       contexts: ["selection"]
     });
     
-    // Create a disabled hint item (only when NO selection - page context only)
+    // Create a disabled hint item (only when NO selection - page and link contexts)
     chrome.contextMenus.create({
       id: "ugtbrowser_hint",
       parentId: CONTEXT_MENU_PARENT,
       title: "(Highlight some text first!)",
-      contexts: ["page"],
+      contexts: ["page", "link"],
       enabled: false
     });
     
-    // Create Settings child item (available in both contexts)
+    // Create Settings child item (available in all contexts)
     chrome.contextMenus.create({
       id: CONTEXT_MENU_SETTINGS,
       parentId: CONTEXT_MENU_PARENT,
       title: "Settings",
-      contexts: ["selection", "page"]
+      contexts: ["selection", "page", "link"]
     });
   });
 }
