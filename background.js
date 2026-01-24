@@ -444,16 +444,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // Transform textPayload to the new <ugt_id>Text</ugt_id> format
-    const transformedTextPayload = textPayload.split('\n').map(line => {
-      const match = line.match(/^(ugt_[^:]+):(.*)$/);
+    // Use unique delimiter to split segments (segments can contain newlines)
+    const SEGMENT_DELIMITER = '\n<<<UGT_SEG>>>\n';
+    const transformedTextPayload = textPayload.split(SEGMENT_DELIMITER).map(segment => {
+      // Match the segment format: ugt_id: text (text can span multiple lines)
+      const match = segment.match(/^(ugt_[^:]+):\s*([\s\S]*)$/);
       if (match) {
         const id = match[1];
         const text = match[2].trim(); // Trim whitespace from the captured text
         return `<${id}>${text}</${id}>`;
       }
-      // If a line doesn't match, return it as is.
-      // This case should ideally not be hit if contentScript.js always sends 'ugt_ID: Text' lines.
-      return line; 
+      // If a segment doesn't match, return it as is.
+      // This case should ideally not be hit if contentScript.js always sends 'ugt_ID: Text' segments.
+      return segment; 
     }).join('\n');
 
     actualPromptText = actualPromptText.replace("{{text}}", transformedTextPayload);

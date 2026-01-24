@@ -204,6 +204,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     title.className = 'ugt-lesson-title';
     title.innerHTML = `<strong style="color: #059669; font-size: 15px;">📚 Language Lesson</strong>`;
     
+    // Button container for Stop and Close buttons
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '8px';
+    buttonContainer.style.alignItems = 'center';
+    
     // Stop button for cancelling generation
     const stopButton = document.createElement('button');
     stopButton.className = 'ugt-lesson-stop-btn';
@@ -264,8 +270,53 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     });
     stopButton.addEventListener('mousedown', (e) => e.stopPropagation());
     
+    // Close button to remove the panel
+    const closeButton = document.createElement('button');
+    closeButton.className = 'ugt-lesson-close-btn';
+    closeButton.textContent = '✕';
+    closeButton.title = 'Close';
+    Object.assign(closeButton.style, {
+      padding: '4px 8px',
+      backgroundColor: 'transparent',
+      color: '#6b7280',
+      border: '1px solid #e5e7eb',
+      borderRadius: '4px',
+      fontSize: '14px',
+      cursor: 'pointer',
+      transition: 'all 0.2s'
+    });
+    
+    closeButton.addEventListener('mouseenter', () => {
+      closeButton.style.backgroundColor = '#fee2e2';
+      closeButton.style.borderColor = '#fca5a5';
+      closeButton.style.color = '#dc2626';
+    });
+    closeButton.addEventListener('mouseleave', () => {
+      closeButton.style.backgroundColor = 'transparent';
+      closeButton.style.borderColor = '#e5e7eb';
+      closeButton.style.color = '#6b7280';
+    });
+    
+    closeButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sessionContext = lessonSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        // Cancel any ongoing streaming
+        chrome.runtime.sendMessage({
+          type: 'LESSON_CANCEL',
+          payload: { sessionId: sessionId }
+        });
+      }
+      lessonSessions.delete(sessionId);
+      container.remove();
+    });
+    closeButton.addEventListener('mousedown', (e) => e.stopPropagation());
+    
+    buttonContainer.appendChild(stopButton);
+    buttonContainer.appendChild(closeButton);
+    
     header.appendChild(title);
-    header.appendChild(stopButton);
+    header.appendChild(buttonContainer);
     container.appendChild(header);
     
     // Original text preview (collapsible)
@@ -1123,20 +1174,20 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // IMPORTANT: Apply inline formatting BEFORE restoring placeholders
     // Placeholders now use Unicode markers (⦇⦈) that won't conflict with markdown
     
-    // Convert **bold** to <strong>
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Convert **bold** to <strong> with explicit color to prevent page CSS override
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: inherit; background: transparent;">$1</strong>');
     
     // Convert __bold__ to <strong>
-    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong style="color: inherit; background: transparent;">$1</strong>');
     
     // Convert _italic_ to <em>
-    html = html.replace(/(?<![_\w])_([^_]+)_(?![_\w])/g, '<em>$1</em>');
+    html = html.replace(/(?<![_\w])_([^_]+)_(?![_\w])/g, '<em style="color: inherit; background: transparent;">$1</em>');
     
     // Convert *italic* to <em> (but not at start of line to avoid bullet conflicts)
-    html = html.replace(/(?<!^|\n|\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    html = html.replace(/(?<!^|\n|\*)\*([^*\n]+)\*(?!\*)/g, '<em style="color: inherit; background: transparent;">$1</em>');
     
     // Convert ~~strikethrough~~ to <del>
-    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    html = html.replace(/~~([^~]+)~~/g, '<del style="color: inherit; background: transparent;">$1</del>');
     
     // NOW restore all placeholders after formatting is complete
     
@@ -1191,7 +1242,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         const headerText = headerMatch[2];
         const sizes = { 1: '1.6em', 2: '1.4em', 3: '1.2em', 4: '1.1em', 5: '1em', 6: '0.95em' };
         const weights = { 1: '700', 2: '700', 3: '600', 4: '600', 5: '600', 6: '500' };
-        processedLines.push(`<h${level} style="font-size: ${sizes[level]}; font-weight: ${weights[level]}; margin: 12px 0 8px 0; color: #1a1a2e;">${headerText}</h${level}>`);
+        // Use defensive inline styles to prevent page CSS interference (dark backgrounds, icons, etc.)
+        processedLines.push(`<div style="all: revert; display: block; font-size: ${sizes[level]}; font-weight: ${weights[level]}; margin: 12px 0 8px 0; color: #1a1a2e; background: transparent; border: none; padding: 0;">${headerText}</div>`);
         continue;
       }
       
@@ -1210,10 +1262,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
         if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
         if (!inBlockquote) {
-          processedLines.push('<blockquote style="border-left: 4px solid #6b8afd; margin: 8px 0; padding: 8px 16px; background: rgba(107, 138, 253, 0.05); color: #4a5568; font-style: italic;">');
+          processedLines.push('<blockquote style="all: revert; border-left: 4px solid #6b8afd; margin: 8px 0; padding: 8px 16px; background: rgba(107, 138, 253, 0.05); color: #4a5568; font-style: italic;">');
           inBlockquote = true;
         }
-        processedLines.push(`<p style="margin: 4px 0;">${blockquoteMatch[1] || '&nbsp;'}</p>`);
+        processedLines.push(`<p style="all: revert; margin: 4px 0; color: #4a5568; background: transparent;">${blockquoteMatch[1] || '&nbsp;'}</p>`);
         continue;
       } else if (inBlockquote) {
         processedLines.push('</blockquote>');
@@ -1225,10 +1277,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       if (orderedMatch) {
         if (inUnorderedList) { processedLines.push('</ul>'); inUnorderedList = false; }
         if (!inOrderedList) {
-          processedLines.push('<ol style="margin: 8px 0 8px 20px; padding-left: 0;">');
+          processedLines.push('<ol style="all: revert; margin: 8px 0 8px 20px; padding-left: 0; list-style-position: outside; color: #2d3748; background: transparent;">');
           inOrderedList = true;
         }
-        processedLines.push(`<li style="margin: 4px 0;">${orderedMatch[2]}</li>`);
+        processedLines.push(`<li style="all: revert; margin: 4px 0; color: #2d3748; background: transparent; display: list-item;">${orderedMatch[2]}</li>`);
         continue;
       }
       
@@ -1237,10 +1289,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       if (bulletMatch) {
         if (inOrderedList) { processedLines.push('</ol>'); inOrderedList = false; }
         if (!inUnorderedList) {
-          processedLines.push('<ul style="margin: 8px 0 8px 20px; padding-left: 0;">');
+          processedLines.push('<ul style="all: revert; margin: 8px 0 8px 20px; padding-left: 0; list-style-type: disc; list-style-position: outside; color: #2d3748; background: transparent;">');
           inUnorderedList = true;
         }
-        processedLines.push(`<li style="margin: 4px 0;">${bulletMatch[1]}</li>`);
+        processedLines.push(`<li style="all: revert; margin: 4px 0; color: #2d3748; background: transparent; display: list-item;">${bulletMatch[1]}</li>`);
         continue;
       }
       
@@ -1252,8 +1304,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         // Empty line - add spacing
         processedLines.push('<div style="height: 8px;"></div>');
       } else {
-        // Regular paragraph
-        processedLines.push(`<p style="margin: 6px 0;">${line}</p>`);
+        // Regular paragraph - use defensive styling
+        processedLines.push(`<p style="all: revert; margin: 6px 0; color: #2d3748; background: transparent;">${line}</p>`);
       }
     }
     
@@ -1790,21 +1842,20 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     Object.assign(btn.style, {
       display: 'inline-flex',
       alignItems: 'center',
-      gap: '4px',
-      marginLeft: '10px',
-      marginTop: '12px',
-      marginBottom: '8px',
-      padding: '6px 14px',
-      fontSize: '13px',
+      verticalAlign: 'middle',
+      gap: '3px',
+      marginLeft: '8px',
+      padding: '2px 10px',
+      fontSize: '12px',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       fontWeight: '500',
       color: '#6b8afd',
       backgroundColor: 'rgba(107, 138, 253, 0.08)',
       border: '1px solid rgba(107, 138, 253, 0.25)',
-      borderRadius: '16px',
+      borderRadius: '12px',
       cursor: 'pointer',
       transition: 'all 0.2s ease',
-      lineHeight: '1.4'
+      lineHeight: '1.2'
     });
     
     // Hover effects
@@ -1867,6 +1918,59 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     culturalNuancesContainer = document.createElement('div');
     culturalNuancesContainer.className = 'ugt-cultural-nuances';
     
+    // Close button in top-right corner to remove the panel
+    const closeButton = document.createElement('button');
+    closeButton.className = 'ugt-cultural-nuances-close-btn';
+    closeButton.textContent = '✕';
+    closeButton.title = 'Close';
+    Object.assign(closeButton.style, {
+      position: 'absolute',
+      top: '8px',
+      right: '8px',
+      padding: '4px 8px',
+      backgroundColor: 'transparent',
+      color: '#6b7280',
+      border: '1px solid #e5e7eb',
+      borderRadius: '4px',
+      fontSize: '14px',
+      cursor: 'pointer',
+      transition: 'all 0.2s'
+    });
+    
+    closeButton.addEventListener('mouseenter', () => {
+      closeButton.style.backgroundColor = '#fee2e2';
+      closeButton.style.borderColor = '#fca5a5';
+      closeButton.style.color = '#dc2626';
+    });
+    closeButton.addEventListener('mouseleave', () => {
+      closeButton.style.backgroundColor = 'transparent';
+      closeButton.style.borderColor = '#e5e7eb';
+      closeButton.style.color = '#6b7280';
+    });
+    
+    closeButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Get the session ID and clean up
+      const sessionId = culturalNuancesContainer.dataset.chatSessionId;
+      if (sessionId) {
+        const sessionContext = chatSessions.get(sessionId);
+        if (sessionContext && sessionContext.isStreaming) {
+          // Cancel any ongoing streaming
+          chrome.runtime.sendMessage({
+            type: 'CHAT_CANCEL',
+            payload: { sessionId: sessionId }
+          });
+        }
+        chatSessions.delete(sessionId);
+      }
+      culturalNuancesContainer.remove();
+      culturalNuancesContainer = null;
+      culturalNuancesContent = null;
+    });
+    closeButton.addEventListener('mousedown', (e) => e.stopPropagation());
+    
+    culturalNuancesContainer.appendChild(closeButton);
+    
     // Create a content wrapper for the cultural nuances text
     culturalNuancesContent = document.createElement('div');
     culturalNuancesContent.className = 'ugt-cultural-nuances-content';
@@ -1874,10 +1978,12 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     // Enhanced styling for cultural nuances container
     Object.assign(culturalNuancesContainer.style, {
+      position: 'relative',
       marginLeft: '0',
       marginTop: '12px',
       marginBottom: '8px',
       padding: '14px 18px',
+      paddingRight: '40px', // Extra space for close button
       borderLeft: '4px solid #6b8afd',
       backgroundColor: '#f8f9ff',
       borderRadius: '0 8px 8px 0',
@@ -1888,6 +1994,15 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       maxWidth: '100%',
       boxSizing: 'border-box'
+    });
+    
+    // Apply CSS reset to content wrapper to prevent page CSS interference
+    Object.assign(culturalNuancesContent.style, {
+      all: 'revert', // Reset inherited styles
+      color: '#2d3748',
+      fontSize: '14px',
+      lineHeight: '1.6',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     });
     
     // Find the appropriate insertion point - must be OUTSIDE any anchor elements
@@ -2730,6 +2845,15 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               contentWrapper.innerHTML = simpleMarkdownToHtml(extraText);
               containerToUse.appendChild(contentWrapper);
               
+              // Apply CSS reset to content wrapper to prevent page CSS interference
+              Object.assign(contentWrapper.style, {
+                all: 'revert',
+                color: '#2d3748',
+                fontSize: '14px',
+                lineHeight: '1.6',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+              });
+              
               // Enhanced styling for cultural nuances container
               Object.assign(containerToUse.style, {
                 marginLeft: '0',
@@ -2990,7 +3114,6 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     initialInsertionHasOccurred = false;
 
     const range = activeRange.cloneRange(); // Use the determined activeRange
-    const originalFragmentClone = range.cloneContents(); // This is what we will process and insert
 
     const segmentsToTranslate = [];
     let segmentCounter = 0;
@@ -3004,17 +3127,43 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     culturalNuancesContainer = null;
     culturalNuancesContent = null;
 
-    // Use a TreeWalker to find all text nodes within the cloned fragment
-    const walker = document.createTreeWalker(originalFragmentClone, NodeFilter.SHOW_TEXT, null, false);
+    // IN-PLACE REPLACEMENT: Find all text nodes within the range in the actual DOM
+    // This avoids the clone-delete-insert cycle that breaks DOM structure with complex selections
     const textNodesToReplace = [];
+    
+    // Get the common ancestor that contains the entire selection
+    const commonAncestor = range.commonAncestorContainer;
+    
+    // Helper function to check if a node is within the selection range
+    function isNodeInRange(node, range) {
+      try {
+        // Create a range for just this node
+        const nodeRange = document.createRange();
+        nodeRange.selectNodeContents(node);
+        
+        // Check if this node's range intersects with our selection range
+        // A node is in range if it starts before the range ends AND ends after the range starts
+        const startsBeforeEnd = range.compareBoundaryPoints(Range.START_TO_END, nodeRange) >= 0;
+        const endsAfterStart = range.compareBoundaryPoints(Range.END_TO_START, nodeRange) <= 0;
+        
+        return startsBeforeEnd && endsAfterStart;
+      } catch (e) {
+        return false;
+      }
+    }
+    
+    // Use TreeWalker on the actual DOM, starting from the common ancestor
+    const rootNode = commonAncestor.nodeType === Node.TEXT_NODE ? commonAncestor.parentNode : commonAncestor;
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null, false);
+    
     let node;
     while (node = walker.nextNode()) {
-      if (node.nodeValue.trim() !== "") {
+      if (node.nodeValue.trim() !== "" && isNodeInRange(node, range)) {
         textNodesToReplace.push(node);
       }
     }
 
-    // Replace text nodes with our placeholder spans (pre-filled with original text)
+    // Replace text nodes with our placeholder spans IN-PLACE (pre-filled with original text)
     for (const textNode of textNodesToReplace) {
       const originalText = textNode.nodeValue;
       const uniqueIdCore = `${generateId()}_${segmentCounter++}`;
@@ -3030,11 +3179,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       span.className = UGT_SEGMENT_CLASS;
       span.textContent = originalText; // Pre-fill with original text
 
-      // Replace the text node with the new span in its parent
+      // Replace the text node with the new span IN THE ORIGINAL DOM
       if (textNode.parentNode) {
         textNode.parentNode.replaceChild(span, textNode);
       } else {
-        // This case should ideally not happen if textNode came from walker on a fragment
         console.warn("Text node had no parent during replacement:", textNode);
       }
     }
@@ -3045,12 +3193,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return;
     }
 
-    const textPayload = segmentsToTranslate.join("\n");
+    // Use a unique delimiter between segments so newlines within text don't break parsing
+    const SEGMENT_DELIMITER = '\n<<<UGT_SEG>>>\n';
+    const textPayload = segmentsToTranslate.join(SEGMENT_DELIMITER);
     showOverlay(settings.provider || "?");
 
-    // Now, originalFragmentClone contains the structure with spans replacing text nodes
-    range.deleteContents();
-    range.insertNode(originalFragmentClone);
+    // With in-place replacement, we no longer need to delete/insert content
+    // The original DOM structure (including images) is preserved
     initialInsertionHasOccurred = true;
     
     // Clear the text selection so user doesn't have to click away
