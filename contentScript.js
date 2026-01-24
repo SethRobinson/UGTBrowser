@@ -220,6 +220,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         
         // Still allow chat if there's some content
         if (sessionContext.lessonContent && sessionContext.lessonContent.trim()) {
+          // Add action buttons if not already present
+          if (!container.querySelector('.ugt-message-actions')) {
+            const htmlContent = simpleMarkdownToHtml(sessionContext.lessonContent);
+            const actionButtons = createMessageActionButtons(sessionContext.lessonContent, htmlContent);
+            container.appendChild(actionButtons);
+          }
+          
           createLessonChatInterface(container, sessionContext.originalText, sessionContext.lessonContent, sessionId);
         }
       }
@@ -531,7 +538,18 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     if (isError) {
       msgDiv.innerHTML = `<strong style="color: #ef4444;">Error:</strong> <span style="color: #ef4444;">${escapeHtml(content)}</span>`;
     } else {
-      msgDiv.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${htmlContent}`;
+      // Create content wrapper
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'ugt-message-content';
+      contentWrapper.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${htmlContent}`;
+      
+      // Clear and rebuild the message div
+      msgDiv.innerHTML = '';
+      msgDiv.appendChild(contentWrapper);
+      
+      // Add action buttons for non-error responses
+      const actionButtons = createMessageActionButtons(content, htmlContent);
+      msgDiv.appendChild(actionButtons);
     }
     
     // Remove streaming flag
@@ -1746,6 +1764,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
         sessionContext.isStreaming = false;
         
+        // Add action buttons for the lesson content if not already present
+        if (!sessionContext.container.querySelector('.ugt-message-actions')) {
+          const htmlContent = simpleMarkdownToHtml(sessionContext.lessonContent);
+          const actionButtons = createMessageActionButtons(sessionContext.lessonContent, htmlContent);
+          sessionContext.container.appendChild(actionButtons);
+        }
+        
         // Show the chat interface now that the lesson is complete
         createLessonChatInterface(sessionContext.container, sessionContext.originalText, sessionContext.lessonContent, sessionId);
         
@@ -2181,6 +2206,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             } else {
               // Container exists from streaming - finalize the content
               updateCulturalNuancesContent(extraText);
+            }
+            
+            // Add action buttons for the cultural nuances content if not already present
+            if (!containerToUse.querySelector('.ugt-message-actions')) {
+              const htmlContent = simpleMarkdownToHtml(extraText);
+              const actionButtons = createMessageActionButtons(extraText, htmlContent);
+              containerToUse.appendChild(actionButtons);
             }
             
             // Create chat interface if not already present
