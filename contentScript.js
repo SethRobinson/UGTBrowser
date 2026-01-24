@@ -44,6 +44,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // Lesson sessions - similar to chat sessions but for lesson creation
   const lessonSessions = new Map(); // Map of sessionId -> { originalText, lessonContent, chatHistory, container, isStreaming, providerName, cancelRequested }
   
+  // Ask sessions - for asking questions about selected text
+  const askSessions = new Map(); // Map of sessionId -> { originalText, chatHistory, container, isStreaming, cancelRequested, currentContent }
+  
   // Generate a unique session ID for chat
   function generateChatSessionId() {
     return 'chat_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
@@ -52,6 +55,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // Generate a unique session ID for lessons
   function generateLessonSessionId() {
     return 'lesson_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+  }
+  
+  // Generate a unique session ID for ask sessions
+  function generateAskSessionId() {
+    return 'ask_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
   }
   
   // Handle the CREATE_LESSON message from the context menu
@@ -572,6 +580,430 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     chatInput.disabled = false;
     sendButton.textContent = 'Ask';
     sendButton.style.backgroundColor = '#10b981';
+    sendButton.style.cursor = 'pointer';
+    sendButton.title = '';
+  }
+
+  // ========================================
+  // ASK ABOUT SELECTION FEATURE
+  // ========================================
+  
+  // Handle the ASK_ABOUT message from the context menu
+  function handleAskAbout(selectedText) {
+    if (!selectedText || !selectedText.trim()) {
+      console.warn('ASK_ABOUT called without text');
+      return;
+    }
+    
+    // Create the session ID
+    const sessionId = generateAskSessionId();
+    
+    // Get the selection range
+    let activeRange = savedRange;
+    
+    if (!activeRange) {
+      const currentSelection = document.getSelection();
+      if (currentSelection && currentSelection.rangeCount > 0) {
+        activeRange = currentSelection.getRangeAt(0).cloneRange();
+      }
+    }
+    
+    // Create the ask container
+    const askContainer = createAskContainer(selectedText, sessionId);
+    
+    // Insert directly after the selection using range
+    if (activeRange) {
+      const insertionRange = activeRange.cloneRange();
+      insertionRange.collapse(false); // Collapse to end
+      insertionRange.insertNode(askContainer);
+      window.getSelection().removeAllRanges();
+    } else {
+      console.warn('No selection range available for ask insertion, appending to body');
+      document.body.appendChild(askContainer);
+    }
+    
+    // Scroll to the ask container
+    askContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Store session context
+    const sessionContext = {
+      originalText: selectedText,
+      chatHistory: [],
+      container: askContainer,
+      isStreaming: false,
+      cancelRequested: false,
+      currentContent: ''
+    };
+    askSessions.set(sessionId, sessionContext);
+    
+    // Focus the input field so user can start typing immediately
+    const chatInput = askContainer.querySelector('.ugt-ask-input');
+    if (chatInput) {
+      setTimeout(() => chatInput.focus(), 100);
+    }
+  }
+  
+  // Create the ask container element
+  function createAskContainer(originalText, sessionId) {
+    const container = document.createElement('div');
+    container.className = 'ugt-ask-container';
+    container.dataset.askSessionId = sessionId;
+    
+    // Styling with a blue accent for ask feature
+    Object.assign(container.style, {
+      marginLeft: '0',
+      marginTop: '16px',
+      marginBottom: '16px',
+      padding: '18px 22px',
+      borderLeft: '4px solid #3b82f6', // Blue accent for ask
+      backgroundColor: '#eff6ff', // Light blue background
+      borderRadius: '0 10px 10px 0',
+      boxShadow: '0 3px 12px rgba(59, 130, 246, 0.15)',
+      color: '#1f2937',
+      fontSize: '14px',
+      lineHeight: '1.6',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      maxWidth: '100%',
+      boxSizing: 'border-box'
+    });
+    
+    // Header with title and close button
+    const header = document.createElement('div');
+    header.className = 'ugt-ask-header';
+    Object.assign(header.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '12px',
+      paddingBottom: '10px',
+      borderBottom: '1px solid rgba(59, 130, 246, 0.3)'
+    });
+    
+    const title = document.createElement('div');
+    title.className = 'ugt-ask-title';
+    title.innerHTML = `<strong style="color: #2563eb; font-size: 15px;">💬 Ask About Selection</strong>`;
+    
+    // Close button to remove the panel
+    const closeButton = document.createElement('button');
+    closeButton.className = 'ugt-ask-close-btn';
+    closeButton.textContent = '✕';
+    closeButton.title = 'Close';
+    Object.assign(closeButton.style, {
+      padding: '4px 8px',
+      backgroundColor: 'transparent',
+      color: '#6b7280',
+      border: '1px solid #e5e7eb',
+      borderRadius: '4px',
+      fontSize: '14px',
+      cursor: 'pointer',
+      transition: 'all 0.2s'
+    });
+    
+    closeButton.addEventListener('mouseenter', () => {
+      closeButton.style.backgroundColor = '#fee2e2';
+      closeButton.style.borderColor = '#fca5a5';
+      closeButton.style.color = '#dc2626';
+    });
+    closeButton.addEventListener('mouseleave', () => {
+      closeButton.style.backgroundColor = 'transparent';
+      closeButton.style.borderColor = '#e5e7eb';
+      closeButton.style.color = '#6b7280';
+    });
+    
+    closeButton.addEventListener('click', () => {
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        // Cancel any ongoing streaming
+        chrome.runtime.sendMessage({
+          type: 'ASK_CANCEL',
+          payload: { sessionId: sessionId }
+        });
+      }
+      askSessions.delete(sessionId);
+      container.remove();
+    });
+    
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    container.appendChild(header);
+    
+    // Original text preview (collapsible)
+    const originalPreview = document.createElement('div');
+    originalPreview.className = 'ugt-ask-original';
+    Object.assign(originalPreview.style, {
+      marginBottom: '14px',
+      padding: '10px 14px',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      borderRadius: '6px',
+      fontSize: '13px',
+      color: '#374151'
+    });
+    
+    const truncatedText = originalText.length > 150 ? originalText.substring(0, 150) + '...' : originalText;
+    originalPreview.innerHTML = `<strong style="color: #2563eb;">Selected:</strong> "${escapeHtml(truncatedText)}"`;
+    container.appendChild(originalPreview);
+    
+    // Chat history area (initially hidden, shows when there's history)
+    const chatHistory = document.createElement('div');
+    chatHistory.className = 'ugt-ask-chat-history';
+    Object.assign(chatHistory.style, {
+      display: 'none',
+      maxHeight: '350px',
+      overflowY: 'auto',
+      marginBottom: '14px',
+      padding: '10px',
+      backgroundColor: 'rgba(255, 255, 255, 0.6)',
+      borderRadius: '8px'
+    });
+    container.appendChild(chatHistory);
+    
+    // Input area
+    const inputRow = document.createElement('div');
+    inputRow.className = 'ugt-ask-input-row';
+    Object.assign(inputRow.style, {
+      display: 'flex',
+      gap: '10px',
+      alignItems: 'center'
+    });
+    
+    const chatInput = document.createElement('input');
+    chatInput.type = 'text';
+    chatInput.className = 'ugt-ask-input';
+    chatInput.placeholder = 'Ask a question about this text...';
+    Object.assign(chatInput.style, {
+      flex: '1',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      border: '1px solid #d1d5db',
+      fontSize: '14px',
+      color: '#1f2937',
+      backgroundColor: '#ffffff',
+      outline: 'none',
+      transition: 'border-color 0.2s, box-shadow 0.2s'
+    });
+    chatInput.addEventListener('focus', () => {
+      chatInput.style.borderColor = '#3b82f6';
+      chatInput.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+    });
+    chatInput.addEventListener('blur', () => {
+      chatInput.style.borderColor = '#d1d5db';
+      chatInput.style.boxShadow = 'none';
+    });
+    
+    const sendButton = document.createElement('button');
+    sendButton.className = 'ugt-ask-send-btn';
+    sendButton.textContent = 'Ask';
+    Object.assign(sendButton.style, {
+      padding: '10px 18px',
+      backgroundColor: '#3b82f6',
+      color: '#ffffff',
+      border: 'none',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      transition: 'background-color 0.2s'
+    });
+    
+    sendButton.addEventListener('mouseenter', () => {
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        sendButton.style.backgroundColor = '#dc2626';
+      } else {
+        sendButton.style.backgroundColor = '#2563eb';
+      }
+    });
+    sendButton.addEventListener('mouseleave', () => {
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        sendButton.style.backgroundColor = '#ef4444';
+      } else {
+        sendButton.style.backgroundColor = '#3b82f6';
+      }
+    });
+    
+    // Cancel function
+    const cancelAskRequest = () => {
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        sessionContext.cancelRequested = true;
+        chrome.runtime.sendMessage({
+          type: 'ASK_CANCEL',
+          payload: { sessionId: sessionId }
+        });
+      }
+    };
+    
+    // Send message function
+    const sendAskMessage = () => {
+      const question = chatInput.value.trim();
+      if (!question) return;
+      
+      const sessionContext = askSessions.get(sessionId);
+      if (!sessionContext || sessionContext.isStreaming) return;
+      
+      // Initialize chat history if needed
+      if (!sessionContext.chatHistory) sessionContext.chatHistory = [];
+      
+      // Add user message to history display
+      addAskChatMessage(chatHistory, 'user', question, sessionId);
+      sessionContext.chatHistory.push({ role: 'user', content: question });
+      
+      // Clear input
+      chatInput.value = '';
+      
+      // Show loading state - transform to Stop button
+      sessionContext.isStreaming = true;
+      sessionContext.currentContent = '';
+      sendButton.textContent = 'Stop';
+      sendButton.style.backgroundColor = '#ef4444';
+      sendButton.style.cursor = 'pointer';
+      sendButton.title = 'Stop generation';
+      chatInput.disabled = true;
+      
+      // Create placeholder for assistant response
+      const assistantMsgDiv = addAskChatMessage(chatHistory, 'assistant', '', sessionId);
+      assistantMsgDiv.dataset.streaming = 'true';
+      assistantMsgDiv.dataset.sessionId = sessionId;
+      
+      // Send to background script
+      chrome.runtime.sendMessage({
+        type: 'ASK_REQUEST',
+        payload: {
+          sessionId: sessionId,
+          selectedText: sessionContext.originalText,
+          question: question,
+          chatHistory: sessionContext.chatHistory.slice(0, -1)
+        }
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Ask request error:', chrome.runtime.lastError);
+          finishAskChatResponse(assistantMsgDiv, 'Error: ' + chrome.runtime.lastError.message, true, sessionId);
+          resetAskInputState(chatInput, sendButton, sessionId);
+        }
+      });
+    };
+    
+    // Button click handler - Send or Stop depending on state
+    sendButton.addEventListener('click', () => {
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.isStreaming) {
+        cancelAskRequest();
+      } else {
+        sendAskMessage();
+      }
+    });
+    
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendAskMessage();
+      }
+    });
+    
+    inputRow.appendChild(chatInput);
+    inputRow.appendChild(sendButton);
+    container.appendChild(inputRow);
+    
+    return container;
+  }
+  
+  // Add a message to the ask chat history
+  function addAskChatMessage(historyContainer, role, content, sessionId = null) {
+    // Show history container if hidden
+    historyContainer.style.display = 'block';
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `ugt-ask-chat-message ugt-ask-chat-${role}`;
+    Object.assign(msgDiv.style, {
+      marginBottom: '12px',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      fontSize: '13px',
+      lineHeight: '1.5'
+    });
+    
+    if (role === 'user') {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#dbeafe', // Light blue for user
+        marginLeft: '24px',
+        borderBottomRightRadius: '2px'
+      });
+      msgDiv.innerHTML = `<strong style="color: #1d4ed8;">You:</strong> ${escapeHtml(content)}`;
+    } else {
+      Object.assign(msgDiv.style, {
+        backgroundColor: '#f3f4f6',
+        marginRight: '24px',
+        borderBottomLeftRadius: '2px'
+      });
+      if (content) {
+        msgDiv.innerHTML = `<strong style="color: #3b82f6;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+      } else {
+        msgDiv.innerHTML = `<strong style="color: #3b82f6;">AI:</strong> <span style="color: #9ca3af;">Thinking...</span>`;
+      }
+    }
+    
+    historyContainer.appendChild(msgDiv);
+    historyContainer.scrollTop = historyContainer.scrollHeight;
+    
+    return msgDiv;
+  }
+  
+  // Update streaming message content for ask chat
+  function updateAskStreamingMessage(msgDiv, content) {
+    if (!msgDiv) return;
+    msgDiv.innerHTML = `<strong style="color: #3b82f6;">AI:</strong> ${simpleMarkdownToHtml(content)}`;
+    const historyContainer = msgDiv.parentElement;
+    if (historyContainer) {
+      const isNearBottom = historyContainer.scrollHeight - historyContainer.scrollTop - historyContainer.clientHeight < 100;
+      if (isNearBottom) {
+        historyContainer.scrollTop = historyContainer.scrollHeight;
+      }
+    }
+  }
+  
+  // Finish ask chat response
+  function finishAskChatResponse(msgDiv, content, isError = false, sessionId = null) {
+    if (!msgDiv) return;
+    
+    const htmlContent = simpleMarkdownToHtml(content);
+    
+    if (isError) {
+      msgDiv.innerHTML = `<strong style="color: #ef4444;">Error:</strong> <span style="color: #ef4444;">${escapeHtml(content)}</span>`;
+    } else {
+      // Create content wrapper
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'ugt-message-content';
+      contentWrapper.innerHTML = `<strong style="color: #3b82f6;">AI:</strong> ${htmlContent}`;
+      
+      // Clear and rebuild the message div
+      msgDiv.innerHTML = '';
+      msgDiv.appendChild(contentWrapper);
+      
+      // Add action buttons for non-error responses
+      const actionButtons = createMessageActionButtons(content, htmlContent);
+      msgDiv.appendChild(actionButtons);
+    }
+    
+    // Remove streaming flag
+    msgDiv.removeAttribute('data-streaming');
+    
+    const sessionContext = sessionId ? askSessions.get(sessionId) : null;
+    if (sessionContext) {
+      sessionContext.isStreaming = false;
+    }
+  }
+  
+  // Reset ask input state
+  function resetAskInputState(chatInput, sendButton, sessionId) {
+    const sessionContext = askSessions.get(sessionId);
+    if (sessionContext) {
+      sessionContext.isStreaming = false;
+      sessionContext.cancelRequested = false;
+    }
+    
+    chatInput.disabled = false;
+    sendButton.textContent = 'Ask';
+    sendButton.style.backgroundColor = '#3b82f6';
     sendButton.style.cursor = 'pointer';
     sendButton.title = '';
   }
@@ -1544,6 +1976,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       handleCreateLesson(msg.text, msg.lessonPrompt);
       sendResponse();
       return true;
+    } else if (msg.type === "ASK_ABOUT") {
+      handleAskAbout(msg.text);
+      sendResponse();
+      return true;
     } else if (msg.type === "PING") {
       sendResponse({ status: "ok" });
       return true;
@@ -1875,6 +2311,74 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         
         if (chatInput && sendButton) {
           resetLessonChatInputState(chatInput, sendButton, sessionId);
+        }
+      }
+    } else if (msg.type === "ASK_STREAM_CHUNK") {
+      // Handle ask streaming chunks - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('ASK_STREAM_CHUNK received without sessionId');
+        return;
+      }
+      
+      const sessionContext = askSessions.get(sessionId);
+      // Ignore chunks if cancel was requested
+      if (sessionContext && sessionContext.isStreaming && sessionContext.container && !sessionContext.cancelRequested) {
+        // Find the streaming message element by both streaming status AND session ID
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-ask-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        if (streamingMsg) {
+          // Accumulate content
+          sessionContext.currentContent = (sessionContext.currentContent || '') + msg.chunk;
+          updateAskStreamingMessage(streamingMsg, sessionContext.currentContent);
+        }
+      }
+    } else if (msg.type === "ASK_STREAM_COMPLETE") {
+      // Handle ask stream completion - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('ASK_STREAM_COMPLETE received without sessionId');
+        return;
+      }
+      
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-ask-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-ask-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-ask-send-btn');
+        
+        if (streamingMsg) {
+          const finalContent = sessionContext.currentContent || '';
+          finishAskChatResponse(streamingMsg, finalContent, false, sessionId);
+          
+          // Add to chat history in session context
+          if (!sessionContext.chatHistory) sessionContext.chatHistory = [];
+          sessionContext.chatHistory.push({ role: 'assistant', content: finalContent });
+        }
+        
+        if (chatInput && sendButton) {
+          resetAskInputState(chatInput, sendButton, sessionId);
+        }
+      }
+    } else if (msg.type === "ASK_STREAM_ERROR") {
+      // Handle ask stream error - route by session ID
+      const sessionId = msg.sessionId;
+      if (!sessionId) {
+        console.warn('ASK_STREAM_ERROR received without sessionId');
+        return;
+      }
+      
+      const sessionContext = askSessions.get(sessionId);
+      if (sessionContext && sessionContext.container && !sessionContext.cancelRequested) {
+        const streamingMsg = sessionContext.container.querySelector(`.ugt-ask-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        const chatInput = sessionContext.container.querySelector('.ugt-ask-input');
+        const sendButton = sessionContext.container.querySelector('.ugt-ask-send-btn');
+        
+        if (streamingMsg) {
+          finishAskChatResponse(streamingMsg, msg.error || 'An error occurred', true, sessionId);
+        }
+        
+        if (chatInput && sendButton) {
+          resetAskInputState(chatInput, sendButton, sessionId);
         }
       }
     }

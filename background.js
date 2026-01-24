@@ -46,7 +46,7 @@ function showRestrictedPageWarning(url, action = 'translate') {
     }
   }
   
-  const actionVerb = action === 'speak' ? 'use text-to-speech' : (action === 'lesson' ? 'create a lesson' : 'translate');
+  const actionVerb = action === 'speak' ? 'use text-to-speech' : (action === 'lesson' ? 'create a lesson' : (action === 'ask' ? 'ask about selection' : 'translate'));
   
   chrome.notifications.create({
     type: 'basic',
@@ -96,6 +96,7 @@ async function getSelectionText(info, tab) {
 const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
 const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
 const CONTEXT_MENU_LESSON = "ugtbrowser_lesson";
+const CONTEXT_MENU_ASK = "ugtbrowser_ask";
 const CONTEXT_MENU_SETTINGS = "ugtbrowser_settings";
 
 // Models that don't support temperature settings
@@ -334,6 +335,14 @@ function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_LESSON,
       parentId: CONTEXT_MENU_PARENT,
       title: "Create Lesson",
+      contexts: ["selection", "link"]
+    });
+    
+    // Create Ask child item (for selection and link - ask questions about selected text)
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ASK,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Ask About Selection",
       contexts: ["selection", "link"]
     });
     
@@ -850,6 +859,104 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     sendResponse({ status: "cancelled", sessionId: sessionId });
     return true;
+  } else if (message.type === "ASK_REQUEST") {
+    // Handle ask about selection - user is asking a question about selected text
+    const { sessionId, selectedText, question, chatHistory } = message.payload;
+    
+    // Validate sessionId is present
+    if (!sessionId) {
+      console.error("ASK_REQUEST received without sessionId");
+      chrome.tabs.sendMessage(sender.tab.id, { 
+        type: "ASK_STREAM_ERROR", 
+        sessionId: null,
+        error: "Internal error: No session ID provided"
+      }, { frameId: sender.frameId });
+      sendResponse({ status: "error", error: "No session ID" });
+      return true;
+    }
+    
+    // Get current settings to use the same provider/model
+    chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
+      const settings = data.settings || {};
+      const provider = data.selectedProvider || settings.provider || 'openai';
+      const model = settings.model;
+      
+      // Get the appropriate API key
+      let apiKey;
+      if (provider === 'openai') {
+        apiKey = data.openaiApiKey;
+      } else if (provider === 'anthropic') {
+        apiKey = data.anthropicApiKey;
+      } else if (provider === 'gemini') {
+        apiKey = data.geminiApiKey;
+      }
+      
+      if (!apiKey) {
+        chrome.tabs.sendMessage(sender.tab.id, { 
+          type: "ASK_STREAM_ERROR", 
+          sessionId: sessionId,
+          error: `No API key configured for ${provider}. Please check your settings.`
+        }, { frameId: sender.frameId });
+        return;
+      }
+      
+      // Create abort controller for this ask session
+      const abortController = new AbortController();
+      activeChatSessions.set(sessionId, {
+        abortController: abortController,
+        tabId: sender.tab.id,
+        frameId: sender.frameId
+      });
+      
+      // Build the ask prompt
+      const askPrompt = buildAskPrompt(question, selectedText, chatHistory);
+      
+      try {
+        // Use streaming for ask responses
+        await fetchAskStreaming(askPrompt, provider, model, apiKey, sender.tab.id, sender.frameId, settings, sessionId, abortController.signal);
+        
+        // Send completion message with sessionId (only if not aborted)
+        if (!abortController.signal.aborted) {
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "ASK_STREAM_COMPLETE",
+            sessionId: sessionId
+          }, { frameId: sender.frameId });
+        }
+        
+      } catch (error) {
+        // Don't send error if it was an intentional abort
+        if (error.name === 'AbortError') {
+          console.log(`Ask session ${sessionId} was cancelled`);
+        } else {
+          console.error("Ask request error:", error);
+          chrome.tabs.sendMessage(sender.tab.id, { 
+            type: "ASK_STREAM_ERROR", 
+            sessionId: sessionId,
+            error: error.message || String(error)
+          }, { frameId: sender.frameId });
+        }
+      } finally {
+        // Clean up the session
+        activeChatSessions.delete(sessionId);
+      }
+    });
+    
+    sendResponse({ status: "ask_started", sessionId: sessionId });
+    return true;
+  } else if (message.type === "ASK_CANCEL") {
+    // Handle ask cancellation
+    const { sessionId } = message.payload;
+    console.log(`Received ASK_CANCEL for session: ${sessionId}`);
+    
+    const askSession = activeChatSessions.get(sessionId);
+    if (askSession && askSession.abortController) {
+      askSession.abortController.abort();
+      activeChatSessions.delete(sessionId);
+      console.log(`Cancelled ask session: ${sessionId}`);
+    }
+    
+    sendResponse({ status: "cancelled", sessionId: sessionId });
+    return true;
   }
 });
 
@@ -1116,6 +1223,63 @@ async function fetchLessonStreaming(prompt, provider, model, apiKey, tabId, fram
     
     chrome.tabs.sendMessage(tabId, { 
       type: "LESSON_STREAM_CHUNK", 
+      sessionId: sessionId,
+      chunk: chunk 
+    }, { frameId: frameId });
+  };
+  
+  switch (provider) {
+    case "openai":
+      await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    case "anthropic":
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal);
+      break;
+    case "gemini":
+      await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
+      break;
+    default:
+      throw new Error(`Unknown provider: ${provider}`);
+  }
+}
+
+// Build a prompt for ask about selection questions
+function buildAskPrompt(question, selectedText, chatHistory) {
+  let prompt = `You are a helpful assistant. The user has selected some text and wants to ask a question about it.
+
+**Selected Text:**
+${selectedText}
+
+`;
+
+  // Add chat history if any
+  if (chatHistory && chatHistory.length > 0) {
+    prompt += `**Previous Conversation:**\n`;
+    for (const msg of chatHistory) {
+      const role = msg.role === 'user' ? 'User' : 'Assistant';
+      prompt += `${role}: ${msg.content}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `**Question:**
+${question}
+
+Please provide a helpful, clear answer. Format your response using markdown for emphasis and structure where appropriate.`;
+
+  return prompt;
+}
+
+// Streaming ask function for questions about selected text
+async function fetchAskStreaming(prompt, provider, model, apiKey, tabId, frameId, settings = {}, sessionId = null, abortSignal = null) {
+  console.log(`Starting ask streaming for provider: ${provider}, sessionId: ${sessionId}`);
+  
+  const sendChunk = (chunk) => {
+    // Don't send if aborted
+    if (abortSignal && abortSignal.aborted) return;
+    
+    chrome.tabs.sendMessage(tabId, { 
+      type: "ASK_STREAM_CHUNK", 
       sessionId: sessionId,
       chunk: chunk 
     }, { frameId: frameId });
@@ -1480,6 +1644,38 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             console.error(`Error sending CREATE_LESSON to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
           }
         });
+      });
+    });
+    return;
+  }
+  
+  // Handle Ask About Selection menu item
+  if (info.menuItemId === CONTEXT_MENU_ASK) {
+    // Check if the page is restricted
+    if (isRestrictedUrl(tab.url)) {
+      showRestrictedPageWarning(tab.url, 'ask');
+      return;
+    }
+    
+    // Get selection text - either from context menu or by querying the page
+    getSelectionText(info, tab).then(selectionText => {
+      if (!selectionText) {
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: "Please highlight some text first, then try again.",
+          errorContext: "NO_SELECTION"
+        }, { frameId: info.frameId });
+        return;
+      }
+      
+      // Send to content script to show the ask panel
+      chrome.tabs.sendMessage(tab.id, { 
+        type: "ASK_ABOUT",
+        text: selectionText
+      }, { frameId: info.frameId }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error(`Error sending ASK_ABOUT to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+        }
       });
     });
     return;
