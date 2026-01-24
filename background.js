@@ -65,24 +65,6 @@ function showRestrictedPageWarning(url, action = 'translate') {
   });
 }
 
-// Helper function to show a warning when no text is selected
-function showNoSelectionWarning() {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icon128.png',
-    title: 'UGTBrowser',
-    message: 'Please highlight some text first, then try again.',
-    priority: 1
-  }, (notificationId) => {
-    if (chrome.runtime.lastError) {
-      console.error("Error showing notification:", chrome.runtime.lastError.message);
-    }
-    // Auto-close notification after 4 seconds
-    setTimeout(() => {
-      chrome.notifications.clear(notificationId);
-    }, 4000);
-  });
-}
 
 // Helper function to get selection text - either from context menu info or by querying the page
 async function getSelectionText(info, tab) {
@@ -1330,7 +1312,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Get selection text - either from context menu or by querying the page
     getSelectionText(info, tab).then(selectionText => {
       if (!selectionText) {
-        showNoSelectionWarning();
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: "Please highlight some text first, then try again.",
+          errorContext: "NO_SELECTION"
+        }, { frameId: info.frameId });
         return;
       }
       
@@ -1367,7 +1353,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Get selection text - either from context menu or by querying the page
     getSelectionText(info, tab).then(selectionText => {
       if (!selectionText) {
-        showNoSelectionWarning();
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: "Please highlight some text first, then try again.",
+          errorContext: "NO_SELECTION"
+        }, { frameId: info.frameId });
         return;
       }
       
@@ -1469,7 +1459,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Get selection text - either from context menu or by querying the page
     getSelectionText(info, tab).then(selectionText => {
       if (!selectionText) {
-        showNoSelectionWarning();
+        chrome.tabs.sendMessage(tab.id, { 
+          type: "UGT_SHOW_ERROR", 
+          message: "Please highlight some text first, then try again.",
+          errorContext: "NO_SELECTION"
+        }, { frameId: info.frameId });
         return;
       }
       
