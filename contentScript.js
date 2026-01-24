@@ -88,14 +88,36 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // Create the lesson container
     const lessonContainer = createLessonContainer(selectedText, sessionId);
     
-    // Insert directly after the selection using range (same approach as translate)
+    // Insert after the selection, but OUTSIDE any anchor elements
     if (activeRange) {
-      // Clone the range and collapse to the end point
-      const insertionRange = activeRange.cloneRange();
-      insertionRange.collapse(false); // Collapse to end
+      // Find the end container of the selection
+      let insertAfterElement = activeRange.endContainer;
       
-      // Insert the lesson container at the end of the selection
-      insertionRange.insertNode(lessonContainer);
+      // If it's a text node, get its parent
+      if (insertAfterElement.nodeType === Node.TEXT_NODE) {
+        insertAfterElement = insertAfterElement.parentNode;
+      }
+      
+      // Walk up the DOM tree to find if we're inside an anchor element
+      let currentElement = insertAfterElement;
+      while (currentElement && currentElement !== document.body) {
+        if (currentElement.tagName === 'A') {
+          // Insert after the anchor element instead
+          insertAfterElement = currentElement;
+          break;
+        }
+        currentElement = currentElement.parentNode;
+      }
+      
+      // Insert the lesson container after the element (outside any anchor)
+      if (insertAfterElement && insertAfterElement.parentNode) {
+        insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
+      } else {
+        // Fallback: use range insertion
+        const insertionRange = activeRange.cloneRange();
+        insertionRange.collapse(false);
+        insertionRange.insertNode(lessonContainer);
+      }
       
       // Clear the selection so user doesn't have to click away
       window.getSelection().removeAllRanges();
@@ -205,7 +227,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       stopButton.style.backgroundColor = '#ef4444';
     });
     
-    stopButton.addEventListener('click', () => {
+    stopButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       const sessionContext = lessonSessions.get(sessionId);
       if (sessionContext) {
         sessionContext.cancelRequested = true;
@@ -239,6 +262,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
       }
     });
+    stopButton.addEventListener('mousedown', (e) => e.stopPropagation());
     
     header.appendChild(title);
     header.appendChild(stopButton);
@@ -344,6 +368,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       chatInput.style.borderColor = '#d1d5db';
       chatInput.style.boxShadow = 'none';
     });
+    // Prevent clicks on input from triggering parent links (e.g., when selecting a URL)
+    chatInput.addEventListener('mousedown', (e) => e.stopPropagation());
+    chatInput.addEventListener('click', (e) => e.stopPropagation());
     
     // Send button
     const sendButton = document.createElement('button');
@@ -461,7 +488,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     };
     
     // Button click handler - Send or Stop depending on state
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       const sessionContext = lessonSessions.get(sessionId);
       if (sessionContext && sessionContext.isChatStreaming) {
         cancelChatRequest();
@@ -469,6 +497,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         sendChatMessage();
       }
     });
+    sendButton.addEventListener('mousedown', (e) => e.stopPropagation());
     
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
@@ -611,11 +640,37 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // Create the ask container
     const askContainer = createAskContainer(selectedText, sessionId);
     
-    // Insert directly after the selection using range
+    // Insert after the selection, but OUTSIDE any anchor elements
     if (activeRange) {
-      const insertionRange = activeRange.cloneRange();
-      insertionRange.collapse(false); // Collapse to end
-      insertionRange.insertNode(askContainer);
+      // Find the end container of the selection
+      let insertAfterElement = activeRange.endContainer;
+      
+      // If it's a text node, get its parent
+      if (insertAfterElement.nodeType === Node.TEXT_NODE) {
+        insertAfterElement = insertAfterElement.parentNode;
+      }
+      
+      // Walk up the DOM tree to find if we're inside an anchor element
+      let currentElement = insertAfterElement;
+      while (currentElement && currentElement !== document.body) {
+        if (currentElement.tagName === 'A') {
+          // Insert after the anchor element instead
+          insertAfterElement = currentElement;
+          break;
+        }
+        currentElement = currentElement.parentNode;
+      }
+      
+      // Insert the ask container after the element (outside any anchor)
+      if (insertAfterElement && insertAfterElement.parentNode) {
+        insertAfterElement.parentNode.insertBefore(askContainer, insertAfterElement.nextSibling);
+      } else {
+        // Fallback: use range insertion
+        const insertionRange = activeRange.cloneRange();
+        insertionRange.collapse(false);
+        insertionRange.insertNode(askContainer);
+      }
+      
       window.getSelection().removeAllRanges();
     } else {
       console.warn('No selection range available for ask insertion, appending to body');
@@ -710,7 +765,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       closeButton.style.color = '#6b7280';
     });
     
-    closeButton.addEventListener('click', () => {
+    closeButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       const sessionContext = askSessions.get(sessionId);
       if (sessionContext && sessionContext.isStreaming) {
         // Cancel any ongoing streaming
@@ -722,6 +778,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       askSessions.delete(sessionId);
       container.remove();
     });
+    closeButton.addEventListener('mousedown', (e) => e.stopPropagation());
     
     header.appendChild(title);
     header.appendChild(closeButton);
@@ -789,6 +846,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       chatInput.style.borderColor = '#d1d5db';
       chatInput.style.boxShadow = 'none';
     });
+    // Prevent clicks on input from triggering parent links (e.g., when selecting a URL)
+    chatInput.addEventListener('mousedown', (e) => e.stopPropagation());
+    chatInput.addEventListener('click', (e) => e.stopPropagation());
     
     const sendButton = document.createElement('button');
     sendButton.className = 'ugt-ask-send-btn';
@@ -885,7 +945,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     };
     
     // Button click handler - Send or Stop depending on state
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       const sessionContext = askSessions.get(sessionId);
       if (sessionContext && sessionContext.isStreaming) {
         cancelAskRequest();
@@ -893,6 +954,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         sendAskMessage();
       }
     });
+    sendButton.addEventListener('mousedown', (e) => e.stopPropagation());
     
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
@@ -1283,6 +1345,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       chatInput.style.borderColor = '#d1d5db';
       chatInput.style.boxShadow = 'none';
     });
+    // Prevent clicks on input from triggering parent links (e.g., when selecting a URL)
+    chatInput.addEventListener('mousedown', (e) => e.stopPropagation());
+    chatInput.addEventListener('click', (e) => e.stopPropagation());
     
     // Send button
     const sendButton = document.createElement('button');
@@ -1398,7 +1463,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     };
     
     // Button click handler - Send or Stop depending on state
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       const currentSession = chatSessions.get(sessionId);
       if (currentSession && currentSession.isStreaming) {
         cancelRequest();
@@ -1406,6 +1472,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         sendMessage();
       }
     });
+    sendButton.addEventListener('mousedown', (e) => e.stopPropagation());
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         sendMessage();
