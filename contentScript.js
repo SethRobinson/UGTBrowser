@@ -72,63 +72,74 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // Create the lesson session ID early so we can show the overlay
     const sessionId = generateLessonSessionId();
     
-    // Show progress overlay immediately for user feedback
-    showLessonOverlay(sessionId);
+    // Check for standalone mode
+    const isStandalone = window.UGT_STANDALONE_MODE && window.UGT_STANDALONE_MODE.container;
     
-    // Get the selection range - use same approach as translate which works correctly
-    let activeRange = savedRange;
-    
-    if (!activeRange) {
-      const currentSelection = document.getSelection();
-      if (currentSelection && currentSelection.rangeCount > 0) {
-        activeRange = currentSelection.getRangeAt(0).cloneRange();
-      }
+    // Show progress overlay immediately for user feedback (skip in standalone mode)
+    if (!isStandalone) {
+      showLessonOverlay(sessionId);
     }
     
     // Create the lesson container
     const lessonContainer = createLessonContainer(selectedText, sessionId);
     
-    // Insert after the selection, but OUTSIDE any anchor elements
-    if (activeRange) {
-      // Find the end container of the selection
-      let insertAfterElement = activeRange.endContainer;
-      
-      // If it's a text node, get its parent
-      if (insertAfterElement.nodeType === Node.TEXT_NODE) {
-        insertAfterElement = insertAfterElement.parentNode;
-      }
-      
-      // Walk up the DOM tree to find if we're inside an anchor element
-      let currentElement = insertAfterElement;
-      while (currentElement && currentElement !== document.body) {
-        if (currentElement.tagName === 'A') {
-          // Insert after the anchor element instead
-          insertAfterElement = currentElement;
-          break;
-        }
-        currentElement = currentElement.parentNode;
-      }
-      
-      // Insert the lesson container after the element (outside any anchor)
-      if (insertAfterElement && insertAfterElement.parentNode) {
-        insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
-      } else {
-        // Fallback: use range insertion
-        const insertionRange = activeRange.cloneRange();
-        insertionRange.collapse(false);
-        insertionRange.insertNode(lessonContainer);
-      }
-      
-      // Clear the selection so user doesn't have to click away
-      window.getSelection().removeAllRanges();
+    if (isStandalone) {
+      // Standalone mode: append to the standalone container
+      window.UGT_STANDALONE_MODE.container.appendChild(lessonContainer);
     } else {
-      // Fallback: append to body if no range available
-      console.warn('No selection range available for lesson insertion, appending to body');
-      document.body.appendChild(lessonContainer);
+      // Normal mode: insert after selection
+      // Get the selection range - use same approach as translate which works correctly
+      let activeRange = savedRange;
+      
+      if (!activeRange) {
+        const currentSelection = document.getSelection();
+        if (currentSelection && currentSelection.rangeCount > 0) {
+          activeRange = currentSelection.getRangeAt(0).cloneRange();
+        }
+      }
+      
+      // Insert after the selection, but OUTSIDE any anchor elements
+      if (activeRange) {
+        // Find the end container of the selection
+        let insertAfterElement = activeRange.endContainer;
+        
+        // If it's a text node, get its parent
+        if (insertAfterElement.nodeType === Node.TEXT_NODE) {
+          insertAfterElement = insertAfterElement.parentNode;
+        }
+        
+        // Walk up the DOM tree to find if we're inside an anchor element
+        let currentElement = insertAfterElement;
+        while (currentElement && currentElement !== document.body) {
+          if (currentElement.tagName === 'A') {
+            // Insert after the anchor element instead
+            insertAfterElement = currentElement;
+            break;
+          }
+          currentElement = currentElement.parentNode;
+        }
+        
+        // Insert the lesson container after the element (outside any anchor)
+        if (insertAfterElement && insertAfterElement.parentNode) {
+          insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
+        } else {
+          // Fallback: use range insertion
+          const insertionRange = activeRange.cloneRange();
+          insertionRange.collapse(false);
+          insertionRange.insertNode(lessonContainer);
+        }
+        
+        // Clear the selection so user doesn't have to click away
+        window.getSelection().removeAllRanges();
+      } else {
+        // Fallback: append to body if no range available
+        console.warn('No selection range available for lesson insertion, appending to body');
+        document.body.appendChild(lessonContainer);
+      }
+      
+      // Scroll to the lesson container so the user can see it
+      lessonContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    
-    // Scroll to the lesson container so the user can see it
-    lessonContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     
     // Store session context
     const sessionContext = {
@@ -678,58 +689,67 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     // Create the session ID
     const sessionId = generateAskSessionId();
     
-    // Get the selection range
-    let activeRange = savedRange;
-    
-    if (!activeRange) {
-      const currentSelection = document.getSelection();
-      if (currentSelection && currentSelection.rangeCount > 0) {
-        activeRange = currentSelection.getRangeAt(0).cloneRange();
-      }
-    }
+    // Check for standalone mode
+    const isStandalone = window.UGT_STANDALONE_MODE && window.UGT_STANDALONE_MODE.container;
     
     // Create the ask container
     const askContainer = createAskContainer(selectedText, sessionId);
     
-    // Insert after the selection, but OUTSIDE any anchor elements
-    if (activeRange) {
-      // Find the end container of the selection
-      let insertAfterElement = activeRange.endContainer;
-      
-      // If it's a text node, get its parent
-      if (insertAfterElement.nodeType === Node.TEXT_NODE) {
-        insertAfterElement = insertAfterElement.parentNode;
-      }
-      
-      // Walk up the DOM tree to find if we're inside an anchor element
-      let currentElement = insertAfterElement;
-      while (currentElement && currentElement !== document.body) {
-        if (currentElement.tagName === 'A') {
-          // Insert after the anchor element instead
-          insertAfterElement = currentElement;
-          break;
-        }
-        currentElement = currentElement.parentNode;
-      }
-      
-      // Insert the ask container after the element (outside any anchor)
-      if (insertAfterElement && insertAfterElement.parentNode) {
-        insertAfterElement.parentNode.insertBefore(askContainer, insertAfterElement.nextSibling);
-      } else {
-        // Fallback: use range insertion
-        const insertionRange = activeRange.cloneRange();
-        insertionRange.collapse(false);
-        insertionRange.insertNode(askContainer);
-      }
-      
-      window.getSelection().removeAllRanges();
+    if (isStandalone) {
+      // Standalone mode: append to the standalone container
+      window.UGT_STANDALONE_MODE.container.appendChild(askContainer);
     } else {
-      console.warn('No selection range available for ask insertion, appending to body');
-      document.body.appendChild(askContainer);
+      // Normal mode: insert after selection
+      // Get the selection range
+      let activeRange = savedRange;
+      
+      if (!activeRange) {
+        const currentSelection = document.getSelection();
+        if (currentSelection && currentSelection.rangeCount > 0) {
+          activeRange = currentSelection.getRangeAt(0).cloneRange();
+        }
+      }
+      
+      // Insert after the selection, but OUTSIDE any anchor elements
+      if (activeRange) {
+        // Find the end container of the selection
+        let insertAfterElement = activeRange.endContainer;
+        
+        // If it's a text node, get its parent
+        if (insertAfterElement.nodeType === Node.TEXT_NODE) {
+          insertAfterElement = insertAfterElement.parentNode;
+        }
+        
+        // Walk up the DOM tree to find if we're inside an anchor element
+        let currentElement = insertAfterElement;
+        while (currentElement && currentElement !== document.body) {
+          if (currentElement.tagName === 'A') {
+            // Insert after the anchor element instead
+            insertAfterElement = currentElement;
+            break;
+          }
+          currentElement = currentElement.parentNode;
+        }
+        
+        // Insert the ask container after the element (outside any anchor)
+        if (insertAfterElement && insertAfterElement.parentNode) {
+          insertAfterElement.parentNode.insertBefore(askContainer, insertAfterElement.nextSibling);
+        } else {
+          // Fallback: use range insertion
+          const insertionRange = activeRange.cloneRange();
+          insertionRange.collapse(false);
+          insertionRange.insertNode(askContainer);
+        }
+        
+        window.getSelection().removeAllRanges();
+      } else {
+        console.warn('No selection range available for ask insertion, appending to body');
+        document.body.appendChild(askContainer);
+      }
+      
+      // Scroll to the ask container
+      askContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    
-    // Scroll to the ask container
-    askContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     
     // Store session context
     const sessionContext = {
@@ -938,10 +958,28 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const sessionContext = askSessions.get(sessionId);
       if (sessionContext && sessionContext.isStreaming) {
         sessionContext.cancelRequested = true;
+        
+        // Send cancel message to background
         chrome.runtime.sendMessage({
           type: 'ASK_CANCEL',
           payload: { sessionId: sessionId }
         });
+        
+        // Update the streaming message to show it was cancelled
+        const streamingMsg = sessionContext.container?.querySelector(`.ugt-ask-chat-message[data-streaming="true"][data-session-id="${sessionId}"]`);
+        if (streamingMsg) {
+          const currentContent = sessionContext.currentContent || '';
+          if (currentContent) {
+            // Had partial content - show it with cancelled notice
+            finishAskChatResponse(streamingMsg, currentContent + '\n\n*(Generation stopped)*', false, sessionId);
+          } else {
+            // No content yet - just remove the placeholder
+            streamingMsg.remove();
+          }
+        }
+        
+        // Reset the input state immediately
+        resetAskInputState(chatInput, sendButton, sessionId);
       }
     };
     
@@ -3901,5 +3939,400 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
     
     hideLessonOverlay();
+  }
+  
+  // ========================================
+  // STANDALONE MODE INITIALIZATION
+  // ========================================
+  
+  // Listen for standalone mode initialization
+  window.addEventListener('UGTStandaloneInit', function() {
+    const standaloneConfig = window.UGT_STANDALONE_MODE;
+    if (!standaloneConfig || !standaloneConfig.text) {
+      console.error('UGT Standalone: No configuration found');
+      return;
+    }
+    
+    console.log('UGT Standalone: Initializing with action:', standaloneConfig.action);
+    
+    const { action, text } = standaloneConfig;
+    
+    switch (action) {
+      case 'lesson':
+        // Get lesson prompt from storage, then create lesson
+        chrome.storage.local.get(['lessonPrompt'], (data) => {
+          handleCreateLesson(text, data.lessonPrompt);
+        });
+        break;
+        
+      case 'ask':
+        handleAskAbout(text);
+        break;
+        
+      case 'translate':
+        // For translate in standalone mode, we need to handle it differently
+        // Create a simple display panel instead of inline replacement
+        handleStandaloneTranslate(text);
+        break;
+        
+      default:
+        console.error('UGT Standalone: Unknown action:', action);
+    }
+  });
+  
+  // Handle translation in standalone mode (creates a display panel instead of inline replacement)
+  function handleStandaloneTranslate(text) {
+    if (!text || !text.trim()) {
+      console.warn('Standalone translate called without text');
+      return;
+    }
+    
+    const container = window.UGT_STANDALONE_MODE?.container;
+    if (!container) {
+      console.error('Standalone translate: No container found');
+      return;
+    }
+    
+    // Create a translation display panel similar to lesson/ask panels
+    const translatePanel = document.createElement('div');
+    translatePanel.className = 'ugt-translate-panel';
+    Object.assign(translatePanel.style, {
+      padding: '18px 22px',
+      borderLeft: '4px solid #10b981', // Green accent for translation
+      backgroundColor: '#ecfdf5',
+      borderRadius: '0 10px 10px 0',
+      color: '#1f2937',
+      fontSize: '14px',
+      lineHeight: '1.6',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    });
+    
+    // Header
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '12px',
+      paddingBottom: '10px',
+      borderBottom: '1px solid rgba(16, 185, 129, 0.3)'
+    });
+    header.innerHTML = '<strong style="color: #059669; font-size: 15px;">🌐 Translation</strong>';
+    translatePanel.appendChild(header);
+    
+    // Original text section
+    const originalSection = document.createElement('div');
+    originalSection.style.marginBottom = '16px';
+    originalSection.innerHTML = `
+      <div style="font-size: 12px; color: #6b7280; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Original Text</div>
+      <div style="color: #4b5563; font-style: italic; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px;">${escapeHtml(text)}</div>
+    `;
+    translatePanel.appendChild(originalSection);
+    
+    // Translation section
+    const translationSection = document.createElement('div');
+    translationSection.innerHTML = `
+      <div style="font-size: 12px; color: #6b7280; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Translation</div>
+      <div class="ugt-translation-content" style="color: #1f2937; padding: 10px; background: white; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+        <span class="ugt-loading-spinner" style="color: #10b981;">⠋</span> Translating...
+      </div>
+    `;
+    translatePanel.appendChild(translationSection);
+    
+    const translationContent = translationSection.querySelector('.ugt-translation-content');
+    
+    // Start spinner animation
+    const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinnerIndex = 0;
+    const spinnerEl = translationSection.querySelector('.ugt-loading-spinner');
+    const spinnerInterval = setInterval(() => {
+      if (spinnerEl) {
+        spinnerIndex = (spinnerIndex + 1) % spinnerChars.length;
+        spinnerEl.textContent = spinnerChars[spinnerIndex];
+      }
+    }, 100);
+    
+    // Action buttons (will be populated after translation)
+    const actionButtons = document.createElement('div');
+    actionButtons.className = 'ugt-translation-actions';
+    actionButtons.style.cssText = 'margin-top: 12px; display: none;';
+    translatePanel.appendChild(actionButtons);
+    
+    container.appendChild(translatePanel);
+    
+    // Get settings and request translation
+    chrome.storage.local.get(null, (data) => {
+      const settings = data.settings || {};
+      const targetLang = settings.targetLang || 'English';
+      
+      // Request simple translation from background
+      chrome.runtime.sendMessage({
+        type: 'STANDALONE_TRANSLATE',
+        sessionId: 'translate_' + Date.now(),
+        text: text,
+        settings: settings
+      });
+      
+      // Store reference for message handling
+      translatePanel.dataset.targetLang = targetLang;
+    });
+    
+    // Listen for translation result
+    const messageHandler = (msg) => {
+      if (msg.type === 'STANDALONE_RESULT' || msg.type === 'STANDALONE_ERROR') {
+        clearInterval(spinnerInterval);
+        
+        if (msg.type === 'STANDALONE_ERROR') {
+          translationContent.innerHTML = `<span style="color: #ef4444;">Error: ${escapeHtml(msg.error)}</span>`;
+        } else {
+          const translatedText = msg.content;
+          translationContent.innerHTML = simpleMarkdownToHtml(translatedText);
+          
+          // Show action buttons
+          actionButtons.style.display = 'flex';
+          actionButtons.style.gap = '8px';
+          actionButtons.innerHTML = `
+            <button class="ugt-copy-btn" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">📋 Copy Translation</button>
+          `;
+          
+          const copyBtn = actionButtons.querySelector('.ugt-copy-btn');
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(translatedText).then(() => {
+              copyBtn.textContent = '✓ Copied!';
+              setTimeout(() => { copyBtn.textContent = '📋 Copy Translation'; }, 2000);
+            });
+          });
+          
+          // Add chat interface for follow-up questions
+          createStandaloneTranslateChat(translatePanel, text, translatedText);
+        }
+        
+        // Remove listener after handling
+        chrome.runtime.onMessage.removeListener(messageHandler);
+      }
+    };
+    
+    chrome.runtime.onMessage.addListener(messageHandler);
+  }
+  
+  // Create chat interface for standalone translation follow-up questions
+  function createStandaloneTranslateChat(container, originalText, translatedText) {
+    const sessionId = 'translate_chat_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+    
+    // Chat section
+    const chatSection = document.createElement('div');
+    chatSection.className = 'ugt-translate-chat-section';
+    Object.assign(chatSection.style, {
+      marginTop: '16px',
+      paddingTop: '12px',
+      borderTop: '1px solid rgba(16, 185, 129, 0.2)'
+    });
+    
+    // Chat header
+    const chatHeader = document.createElement('div');
+    chatHeader.style.cssText = 'font-size: 12px; color: #6b7280; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;';
+    chatHeader.textContent = 'Ask Follow-up Questions';
+    chatSection.appendChild(chatHeader);
+    
+    // Chat history container
+    const chatHistory = document.createElement('div');
+    chatHistory.className = 'ugt-translate-chat-history';
+    Object.assign(chatHistory.style, {
+      maxHeight: '300px',
+      overflowY: 'auto',
+      marginBottom: '10px',
+      display: 'none'
+    });
+    chatSection.appendChild(chatHistory);
+    
+    // Input row
+    const inputRow = document.createElement('div');
+    inputRow.style.cssText = 'display: flex; gap: 8px;';
+    
+    const chatInput = document.createElement('input');
+    chatInput.type = 'text';
+    chatInput.placeholder = 'Ask about this translation...';
+    chatInput.className = 'ugt-translate-chat-input';
+    Object.assign(chatInput.style, {
+      flex: '1',
+      padding: '8px 12px',
+      border: '1px solid #d1d5db',
+      borderRadius: '6px',
+      fontSize: '14px',
+      outline: 'none'
+    });
+    chatInput.addEventListener('focus', () => { chatInput.style.borderColor = '#10b981'; });
+    chatInput.addEventListener('blur', () => { chatInput.style.borderColor = '#d1d5db'; });
+    
+    const sendButton = document.createElement('button');
+    sendButton.textContent = 'Ask';
+    sendButton.className = 'ugt-translate-chat-send';
+    Object.assign(sendButton.style, {
+      padding: '8px 16px',
+      backgroundColor: '#10b981',
+      color: 'white',
+      border: 'none',
+      borderRadius: '6px',
+      fontSize: '14px',
+      fontWeight: '500',
+      cursor: 'pointer'
+    });
+    sendButton.addEventListener('mouseenter', () => { sendButton.style.backgroundColor = '#059669'; });
+    sendButton.addEventListener('mouseleave', () => { 
+      if (!isStreaming) sendButton.style.backgroundColor = '#10b981'; 
+    });
+    
+    inputRow.appendChild(chatInput);
+    inputRow.appendChild(sendButton);
+    chatSection.appendChild(inputRow);
+    container.appendChild(chatSection);
+    
+    // State
+    let isStreaming = false;
+    let chatMessages = [];
+    let currentStreamingContent = '';
+    
+    // Add message to chat
+    function addChatMessage(role, content) {
+      chatHistory.style.display = 'block';
+      
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `ugt-translate-chat-msg ugt-translate-chat-${role}`;
+      Object.assign(msgDiv.style, {
+        padding: '8px 12px',
+        marginBottom: '8px',
+        borderRadius: '8px',
+        fontSize: '14px',
+        lineHeight: '1.5'
+      });
+      
+      if (role === 'user') {
+        Object.assign(msgDiv.style, {
+          backgroundColor: '#10b981',
+          color: 'white',
+          marginLeft: '20%'
+        });
+        msgDiv.textContent = content;
+      } else {
+        Object.assign(msgDiv.style, {
+          backgroundColor: '#f3f4f6',
+          color: '#1f2937',
+          marginRight: '10%'
+        });
+        msgDiv.innerHTML = content ? `<strong style="color: #10b981;">AI:</strong> ${simpleMarkdownToHtml(content)}` : '<span style="color: #10b981;">⠋</span> Thinking...';
+      }
+      
+      chatHistory.appendChild(msgDiv);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      return msgDiv;
+    }
+    
+    // Send message
+    function sendMessage() {
+      const question = chatInput.value.trim();
+      if (!question || isStreaming) return;
+      
+      // Add user message
+      addChatMessage('user', question);
+      chatMessages.push({ role: 'user', content: question });
+      chatInput.value = '';
+      
+      // Show loading
+      isStreaming = true;
+      currentStreamingContent = '';
+      sendButton.textContent = 'Stop';
+      sendButton.style.backgroundColor = '#ef4444';
+      chatInput.disabled = true;
+      
+      const assistantMsg = addChatMessage('assistant', '');
+      assistantMsg.dataset.streaming = 'true';
+      
+      // Send to background
+      chrome.runtime.sendMessage({
+        type: 'CHAT_FOLLOWUP',
+        payload: {
+          sessionId: sessionId,
+          question: question,
+          originalText: originalText,
+          translatedText: translatedText,
+          culturalNuances: '',
+          chatHistory: chatMessages.slice(0, -1)
+        }
+      });
+    }
+    
+    // Handle streaming responses
+    const chatMessageHandler = (msg) => {
+      if (msg.type === 'CHAT_STREAM_CHUNK' && msg.sessionId === sessionId) {
+        const streamingMsg = chatHistory.querySelector('[data-streaming="true"]');
+        if (streamingMsg && !streamingMsg.dataset.cancelled) {
+          currentStreamingContent += msg.chunk;
+          streamingMsg.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${simpleMarkdownToHtml(currentStreamingContent)}`;
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+      } else if (msg.type === 'CHAT_STREAM_COMPLETE' && msg.sessionId === sessionId) {
+        finishResponse(false);
+      } else if (msg.type === 'CHAT_STREAM_ERROR' && msg.sessionId === sessionId) {
+        const streamingMsg = chatHistory.querySelector('[data-streaming="true"]');
+        if (streamingMsg) {
+          streamingMsg.innerHTML = `<strong style="color: #ef4444;">Error:</strong> ${escapeHtml(msg.error)}`;
+          streamingMsg.removeAttribute('data-streaming');
+        }
+        resetInput();
+      }
+    };
+    
+    function finishResponse(cancelled) {
+      const streamingMsg = chatHistory.querySelector('[data-streaming="true"]');
+      if (streamingMsg) {
+        const finalContent = currentStreamingContent + (cancelled && currentStreamingContent ? '\n\n*(Stopped)*' : '');
+        if (finalContent) {
+          streamingMsg.innerHTML = `<strong style="color: #10b981;">AI:</strong> ${simpleMarkdownToHtml(finalContent)}`;
+          chatMessages.push({ role: 'assistant', content: finalContent });
+          
+          // Add action buttons
+          const actions = createMessageActionButtons(finalContent, simpleMarkdownToHtml(finalContent));
+          streamingMsg.appendChild(actions);
+        } else {
+          streamingMsg.remove();
+        }
+        streamingMsg.removeAttribute('data-streaming');
+      }
+      resetInput();
+    }
+    
+    function resetInput() {
+      isStreaming = false;
+      sendButton.textContent = 'Ask';
+      sendButton.style.backgroundColor = '#10b981';
+      chatInput.disabled = false;
+    }
+    
+    // Button click - send or stop
+    sendButton.addEventListener('click', () => {
+      if (isStreaming) {
+        // Cancel
+        const streamingMsg = chatHistory.querySelector('[data-streaming="true"]');
+        if (streamingMsg) streamingMsg.dataset.cancelled = 'true';
+        chrome.runtime.sendMessage({ type: 'CHAT_CANCEL', payload: { sessionId: sessionId } });
+        finishResponse(true);
+      } else {
+        sendMessage();
+      }
+    });
+    
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+    
+    chrome.runtime.onMessage.addListener(chatMessageHandler);
+  }
+  
+  // Check if we're already in standalone mode when script loads
+  if (window.UGT_STANDALONE_MODE && window.UGT_STANDALONE_MODE.text) {
+    // Delay slightly to ensure DOM is ready
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('UGTStandaloneInit'));
+    }, 50);
   }
 } 
