@@ -3405,6 +3405,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         clearInterval(streamHeartbeatInterval);
         streamHeartbeatInterval = null;
       }
+      
+      // Track if streaming was actually in progress when user clicked close
+      const wasStreamingActive = streamingPort !== null;
+      
       if (streamingPort) {
         try {
           streamingPort.disconnect();
@@ -3418,8 +3422,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       if (culturalNuancesContainer && culturalNuancesContent) {
         const rawText = culturalNuancesContent.textContent || '';
         if (rawText.trim()) {
-          // Add stopped notice to the content
-          const stoppedContent = rawText + '\n\n_[Translation stopped by user]_';
+          // Only add stopped notice if streaming was actually in progress
+          const stoppedContent = wasStreamingActive 
+            ? rawText + '\n\n_[Translation stopped by user]_'
+            : rawText;
           culturalNuancesContent.innerHTML = simpleMarkdownToHtml(stoppedContent);
           
           // Add action buttons if not already present

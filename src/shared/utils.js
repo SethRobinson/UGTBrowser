@@ -140,28 +140,50 @@ export function truncateText(text, maxLength) {
 // URL UTILITIES
 // ========================================
 
+// Protocols where content scripts cannot run (Set for O(1) lookup)
+const RESTRICTED_PROTOCOLS = new Set([
+  'chrome:', 'chrome-extension:', 'about:', 'edge:', 'brave:',
+  'opera:', 'vivaldi:', 'moz-extension:', 'file:', 'view-source:',
+  'data:', 'javascript:', 'devtools:'
+]);
+
+// Hosts that block content scripts despite using http/https
+const RESTRICTED_HOSTS = new Set([
+  'chrome.google.com',
+  'chromewebstore.google.com',
+  'microsoftedge.microsoft.com',
+  'addons.mozilla.org'
+]);
+
 /**
- * Check if a URL is restricted (content scripts cannot run)
+ * Check if a URL is likely restricted (content scripts cannot run)
+ * Fast synchronous check using URL parsing - use for quick UI decisions
  */
 export function isRestrictedUrl(url) {
   if (!url) return true;
-  const restrictedPrefixes = [
-    'chrome://',
-    'chrome-extension://',
-    'about:',
-    'edge://',
-    'brave://',
-    'opera://',
-    'vivaldi://',
-    'moz-extension://',
-    'file://',
-    'view-source:',
-    'data:',
-    'javascript:',
-    'devtools://'
-  ];
-  const lowerUrl = url.toLowerCase();
-  return restrictedPrefixes.some(prefix => lowerUrl.startsWith(prefix));
+  try {
+    const parsed = new URL(url);
+    return RESTRICTED_PROTOCOLS.has(parsed.protocol) ||
+           RESTRICTED_HOSTS.has(parsed.hostname);
+  } catch {
+    return true; // Invalid URL = treat as restricted
+  }
+}
+
+/**
+ * Definitively check if content scripts can run on a tab
+ * Use when you need certainty (async, requires tab ID)
+ */
+export async function canInjectContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => true
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ========================================
