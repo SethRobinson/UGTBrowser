@@ -65,6 +65,171 @@ function showRestrictedPageWarning(url, action = 'translate') {
   });
 }
 
+// Helper function to show notification when content script is unreachable (e.g., in another extension's popup)
+function showFrameUnreachableWarning(action = 'translate') {
+  const actionVerb = action === 'speak' ? 'use text-to-speech' : (action === 'lesson' ? 'create a lesson' : (action === 'ask' ? 'ask about selection' : 'translate'));
+  
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: 'UGTBrowser',
+    message: `Cannot ${actionVerb} in this context. The selected text may be inside another extension's popup where content scripts cannot run.`,
+    priority: 1
+  }, (notificationId) => {
+    if (chrome.runtime.lastError) {
+      console.error("Error showing notification:", chrome.runtime.lastError.message);
+    }
+    setTimeout(() => {
+      chrome.notifications.clear(notificationId);
+    }, 5000);
+  });
+}
+
+// Helper function to open standalone popup window for when content script is unreachable
+function openStandaloneWindow(action, text, isRestricted = true) {
+  const encodedText = encodeURIComponent(text);
+  const restrictedParam = isRestricted ? '&restricted=true' : '';
+  const url = chrome.runtime.getURL(`standalone.html?action=${action}&text=${encodedText}${restrictedParam}`);
+  
+  chrome.windows.create({
+    url: url,
+    type: 'popup',
+    width: 700,
+    height: 600,
+    focused: true
+  });
+}
+
+// Helper function to handle TTS on restricted pages (plays via offscreen document)
+async function handleTTSForRestrictedPage(text) {
+  chrome.storage.local.get([
+    'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
+    'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
+  ], async (data) => {
+    const ttsProvider = data.ttsProvider || 'elevenlabs';
+    
+    try {
+      let base64Audio;
+      let mimeType;
+      
+      if (ttsProvider === 'google') {
+        const apiKey = data.googleTtsApiKey;
+        const voiceId = data.googleTtsVoice || 'en-US-Studio-O';
+        const speakingRate = data.googleTtsSpeakingRate || 1.0;
+        const pitch = data.googleTtsPitch || 0;
+        
+        if (!apiKey) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'UGTBrowser',
+            message: 'Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.',
+            priority: 1
+          }, (notificationId) => {
+            setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+          });
+          return;
+        }
+        
+        base64Audio = await fetchFromGoogleTTS(text, voiceId, apiKey, speakingRate, pitch);
+        mimeType = "audio/mp3";
+        
+      } else {
+        const apiKey = data.elevenlabsApiKey;
+        const customVoiceId = data.elevenlabsCustomVoiceId || '';
+        const selectedVoiceId = data.elevenlabsVoice || "21m00Tcm4TlvDq8ikWAM";
+        const voiceId = customVoiceId.length > 0 ? customVoiceId : selectedVoiceId;
+        const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
+        
+        if (!apiKey) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'UGTBrowser',
+            message: 'ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.',
+            priority: 1
+          }, (notificationId) => {
+            setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+          });
+          return;
+        }
+        
+        base64Audio = await fetchFromElevenLabs(text, voiceId, apiKey, modelId);
+        mimeType = "audio/mpeg";
+      }
+      
+      // Play via offscreen document
+      console.log('Playing TTS via offscreen document (restricted page)');
+      await playAudioViaOffscreen(base64Audio, mimeType);
+      
+    } catch (error) {
+      const providerName = ttsProvider === 'google' ? 'Google TTS' : 'ElevenLabs';
+      console.error(`${providerName} TTS error on restricted page:`, error);
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon128.png',
+        title: 'UGTBrowser',
+        message: `${providerName} TTS error: ${error.message}`,
+        priority: 1
+      }, (notificationId) => {
+        setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+      });
+    }
+  });
+}
+
+// Offscreen document management for audio playback
+let creatingOffscreen = null;
+
+async function ensureOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+  
+  // Check if offscreen document already exists
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl]
+  });
+  
+  if (existingContexts.length > 0) {
+    return; // Already exists
+  }
+  
+  // Avoid race conditions when creating
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return;
+  }
+  
+  creatingOffscreen = chrome.offscreen.createDocument({
+    url: offscreenUrl,
+    reasons: ['AUDIO_PLAYBACK'],
+    justification: 'Playing TTS audio when content script is unavailable'
+  });
+  
+  await creatingOffscreen;
+  creatingOffscreen = null;
+}
+
+async function playAudioViaOffscreen(base64Audio, mimeType) {
+  await ensureOffscreenDocument();
+  
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_PLAY_AUDIO',
+      audio: base64Audio,
+      mimeType: mimeType
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (response && response.success) {
+        resolve();
+      } else {
+        reject(new Error(response?.error || 'Unknown error playing audio'));
+      }
+    });
+  });
+}
+
 
 // Helper function to get selection text - either from context menu info or by querying the page
 async function getSelectionText(info, tab) {
@@ -582,6 +747,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: false, error: error.message || String(error) });
       });
     return true; // Keep message channel open for async response
+  } else if (message.type === "OFFSCREEN_AUDIO_ENDED") {
+    // Audio playback finished in offscreen document
+    console.log("Offscreen audio playback completed");
+    return false;
+  } else if (message.type === "STANDALONE_TRANSLATE") {
+    // Handle translation request from standalone window
+    const { sessionId, text, settings } = message;
+    
+    chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey'], async (data) => {
+      const storedSettings = data.settings || {};
+      const provider = data.selectedProvider || storedSettings.provider || 'openai';
+      const model = storedSettings.model;
+      const targetLang = storedSettings.targetLang || 'English';
+      
+      let apiKey;
+      if (provider === 'openai') apiKey = data.openaiApiKey;
+      else if (provider === 'anthropic') apiKey = data.anthropicApiKey;
+      else if (provider === 'gemini') apiKey = data.geminiApiKey;
+      
+      if (!apiKey) {
+        chrome.runtime.sendMessage({
+          type: 'STANDALONE_ERROR',
+          sessionId: sessionId,
+          error: `No API key configured for ${provider}. Please check your settings.`
+        });
+        return;
+      }
+      
+      // Build a simple translation prompt
+      const prompt = `Translate the following text to ${targetLang}. Provide only the translation, no explanations:\n\n${text}`;
+      
+      try {
+        // Use non-streaming translation for simplicity in standalone mode
+        let result;
+        if (provider === 'openai') {
+          result = await fetchFromOpenAI(prompt, model, apiKey);
+        } else if (provider === 'anthropic') {
+          result = await fetchFromAnthropic(prompt, model, apiKey);
+        } else if (provider === 'gemini') {
+          result = await fetchFromGemini(prompt, model, apiKey);
+        }
+        
+        chrome.runtime.sendMessage({
+          type: 'STANDALONE_RESULT',
+          sessionId: sessionId,
+          content: result
+        });
+      } catch (error) {
+        chrome.runtime.sendMessage({
+          type: 'STANDALONE_ERROR',
+          sessionId: sessionId,
+          error: error.message || String(error)
+        });
+      }
+    });
+    
+    sendResponse({ status: "started" });
+    return true;
   } else if (message.type === "CHAT_FOLLOWUP") {
     // Handle follow-up chat questions about cultural nuances
     const { sessionId, question, originalText, translatedText, culturalNuances, chatHistory } = message.payload;
@@ -1472,7 +1695,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_TRANSLATE) {
     // Check if the page is restricted before attempting to translate
     if (isRestrictedUrl(tab.url)) {
-      showRestrictedPageWarning(tab.url);
+      // On restricted pages, use selection text from context menu and open standalone window
+      if (info.selectionText) {
+        openStandaloneWindow('translate', info.selectionText);
+      } else {
+        showRestrictedPageWarning(tab.url);
+      }
       return;
     }
     
@@ -1499,6 +1727,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           chrome.tabs.sendMessage(tab.id, messagePayload, { frameId: info.frameId }, (response) => {
             if (chrome.runtime.lastError) {
               console.error(`Error sending TRANSLATE_SELECTION to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+              // Open standalone window since content script is unreachable (e.g., in another extension's popup)
+              openStandaloneWindow('translate', selectionText);
             }
           });
         } catch (error) { 
@@ -1513,7 +1743,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_SPEAK) {
     // Check if the page is restricted before attempting TTS
     if (isRestrictedUrl(tab.url)) {
-      showRestrictedPageWarning(tab.url, 'speak');
+      // On restricted pages, use selection text from context menu and play via offscreen
+      if (info.selectionText) {
+        handleTTSForRestrictedPage(info.selectionText);
+      } else {
+        showRestrictedPageWarning(tab.url, 'speak');
+      }
       return;
     }
     
@@ -1533,11 +1768,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
       ], async (data) => {
         const ttsProvider = data.ttsProvider || 'elevenlabs';
+        let contentScriptReachable = true;
         
-        // Show TTS overlay
-        chrome.tabs.sendMessage(tab.id, { 
-          type: "UGT_SHOW_TTS_OVERLAY"
-        }, { frameId: info.frameId });
+        // Try to show TTS overlay - this will tell us if content script is reachable
+        await new Promise((resolve) => {
+          chrome.tabs.sendMessage(tab.id, { 
+            type: "UGT_SHOW_TTS_OVERLAY"
+          }, { frameId: info.frameId }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.log(`Content script unreachable in frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+              contentScriptReachable = false;
+            }
+            resolve();
+          });
+        });
         
         try {
           let base64Audio;
@@ -1551,12 +1795,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             const pitch = data.googleTtsPitch || 0;
             
             if (!apiKey) {
-              chrome.tabs.sendMessage(tab.id, { 
-                type: "UGT_SHOW_ERROR", 
-                message: "Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.",
-                errorContext: "API_KEY_ISSUE"
-              }, { frameId: info.frameId });
-              chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              if (contentScriptReachable) {
+                chrome.tabs.sendMessage(tab.id, { 
+                  type: "UGT_SHOW_ERROR", 
+                  message: "Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.",
+                  errorContext: "API_KEY_ISSUE"
+                }, { frameId: info.frameId });
+                chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              } else {
+                chrome.notifications.create({
+                  type: 'basic',
+                  iconUrl: 'icon128.png',
+                  title: 'UGTBrowser',
+                  message: 'Google Cloud TTS API key is not configured. Please add your API key in UGTBrowser Settings.',
+                  priority: 1
+                }, (notificationId) => {
+                  setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+                });
+              }
               return;
             }
             
@@ -1572,12 +1828,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             const modelId = data.elevenlabsModel || "eleven_multilingual_v2";
             
             if (!apiKey) {
-              chrome.tabs.sendMessage(tab.id, { 
-                type: "UGT_SHOW_ERROR", 
-                message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
-                errorContext: "API_KEY_ISSUE"
-              }, { frameId: info.frameId });
-              chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              if (contentScriptReachable) {
+                chrome.tabs.sendMessage(tab.id, { 
+                  type: "UGT_SHOW_ERROR", 
+                  message: "ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.",
+                  errorContext: "API_KEY_ISSUE"
+                }, { frameId: info.frameId });
+                chrome.tabs.sendMessage(tab.id, { type: "UGT_HIDE_TTS_OVERLAY" }, { frameId: info.frameId });
+              } else {
+                chrome.notifications.create({
+                  type: 'basic',
+                  iconUrl: 'icon128.png',
+                  title: 'UGTBrowser',
+                  message: 'ElevenLabs API key is not configured. Please add your API key in UGTBrowser Settings.',
+                  priority: 1
+                }, (notificationId) => {
+                  setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+                });
+              }
               return;
             }
             
@@ -1585,30 +1853,54 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             mimeType = "audio/mpeg";
           }
           
-          // Send audio to content script for playback
-          chrome.tabs.sendMessage(tab.id, { 
-            type: "PLAY_TTS_AUDIO",
-            audio: base64Audio,
-            mimeType: mimeType
-          }, { frameId: info.frameId }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
-            }
-          });
+          if (contentScriptReachable) {
+            // Send audio to content script for playback
+            chrome.tabs.sendMessage(tab.id, { 
+              type: "PLAY_TTS_AUDIO",
+              audio: base64Audio,
+              mimeType: mimeType
+            }, { frameId: info.frameId }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error(`Error sending PLAY_TTS_AUDIO to tab ${tab.id}: ${chrome.runtime.lastError.message}`);
+                // Fallback to offscreen playback
+                playAudioViaOffscreen(base64Audio, mimeType).catch(err => {
+                  console.error('Offscreen audio playback failed:', err);
+                });
+              }
+            });
+          } else {
+            // Play via offscreen document since content script is unreachable
+            console.log('Playing TTS via offscreen document (content script unreachable)');
+            await playAudioViaOffscreen(base64Audio, mimeType);
+          }
           
         } catch (error) {
           const providerName = ttsProvider === 'google' ? 'Google TTS' : 'ElevenLabs';
           console.error(`${providerName} TTS error:`, error);
-          chrome.tabs.sendMessage(tab.id, { 
-            type: "UGT_SHOW_ERROR", 
-            message: `${providerName} TTS error: ${error.message}`,
-            errorContext: "API_KEY_ISSUE"
-          }, { frameId: info.frameId });
           
-          // Hide overlay on error
-          chrome.tabs.sendMessage(tab.id, { 
-            type: "UGT_HIDE_TTS_OVERLAY"
-          }, { frameId: info.frameId });
+          if (contentScriptReachable) {
+            chrome.tabs.sendMessage(tab.id, { 
+              type: "UGT_SHOW_ERROR", 
+              message: `${providerName} TTS error: ${error.message}`,
+              errorContext: "API_KEY_ISSUE"
+            }, { frameId: info.frameId });
+            
+            // Hide overlay on error
+            chrome.tabs.sendMessage(tab.id, { 
+              type: "UGT_HIDE_TTS_OVERLAY"
+            }, { frameId: info.frameId });
+          } else {
+            // Show notification since content script is unreachable
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icon128.png',
+              title: 'UGTBrowser',
+              message: `${providerName} TTS error: ${error.message}`,
+              priority: 1
+            }, (notificationId) => {
+              setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+            });
+          }
         }
       });
     });
@@ -1619,7 +1911,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_LESSON) {
     // Check if the page is restricted before attempting to create lesson
     if (isRestrictedUrl(tab.url)) {
-      showRestrictedPageWarning(tab.url, 'lesson');
+      // On restricted pages, use selection text from context menu and open standalone window
+      if (info.selectionText) {
+        openStandaloneWindow('lesson', info.selectionText);
+      } else {
+        showRestrictedPageWarning(tab.url, 'lesson');
+      }
       return;
     }
     
@@ -1645,6 +1942,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }, { frameId: info.frameId }, (response) => {
           if (chrome.runtime.lastError) {
             console.error(`Error sending CREATE_LESSON to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+            // Open standalone window since content script is unreachable (e.g., in another extension's popup)
+            openStandaloneWindow('lesson', selectionText);
           }
         });
       });
@@ -1656,7 +1955,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === CONTEXT_MENU_ASK) {
     // Check if the page is restricted
     if (isRestrictedUrl(tab.url)) {
-      showRestrictedPageWarning(tab.url, 'ask');
+      // On restricted pages, use selection text from context menu and open standalone window
+      if (info.selectionText) {
+        openStandaloneWindow('ask', info.selectionText);
+      } else {
+        showRestrictedPageWarning(tab.url, 'ask');
+      }
       return;
     }
     
@@ -1678,6 +1982,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }, { frameId: info.frameId }, (response) => {
         if (chrome.runtime.lastError) {
           console.error(`Error sending ASK_ABOUT to tab ${tab.id}, frame ${info.frameId}: ${chrome.runtime.lastError.message}`);
+          // Open standalone window since content script is unreachable (e.g., in another extension's popup)
+          openStandaloneWindow('ask', selectionText);
         }
       });
     });
