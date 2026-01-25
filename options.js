@@ -1,4 +1,6 @@
 // options.js
+// Note: Constants like noTemperatureModels, providerModels, and defaultLessonPrompt
+// are also defined in src/shared/constants.js. Keep them synchronized.
 
 document.addEventListener('DOMContentLoaded', initializeOptionsPage);
 

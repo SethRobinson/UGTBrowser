@@ -2374,12 +2374,18 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
     } else if (msg.type === "UGT_SHOW_TTS_OVERLAY" && window.self === window.top) {
       showTTSOverlay();
+      sendResponse({ status: "shown" });
+      return true;
     } else if (msg.type === "UGT_HIDE_TTS_OVERLAY" && window.self === window.top) {
+      console.log('[UGT TTS] Received UGT_HIDE_TTS_OVERLAY message');
       hideTTSOverlay();
     } else if (msg.type === "PLAY_TTS_AUDIO") {
-      playTTSAudio(msg.audio, msg.mimeType);
-      sendResponse({ status: "playing" });
-      return true;
+      console.log('[UGT TTS] Received PLAY_TTS_AUDIO message, audio size:', msg.audio?.length || 0);
+      playTTSAudio(msg.audio, msg.mimeType, (success) => {
+        // Send status back to background so it knows if playback started
+        sendResponse({ status: success ? "playing" : "failed" });
+      });
+      return true; // Keep channel open for async response
     } else if (msg.type === "LESSON_STREAM_CHUNK") {
       // Handle lesson streaming chunks - route by session ID
       const sessionId = msg.sessionId;
@@ -3705,6 +3711,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // TTS Overlay functions
   function showTTSOverlay() {
+    console.log('[UGT TTS] showTTSOverlay called, isTopFrame:', window.self === window.top);
     if (window.self !== window.top) {
       chrome.runtime.sendMessage({ type: "UGT_SHOW_TTS_OVERLAY_RELAY" });
       return;
@@ -3776,16 +3783,22 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
   
   function hideTTSOverlay() {
+    console.log('[UGT TTS] hideTTSOverlay called, isTopFrame:', window.self === window.top, 'hasOverlay:', !!ttsOverlayDiv);
     if (window.self !== window.top) {
+      console.log('[UGT TTS] In iframe, sending relay to background');
       chrome.runtime.sendMessage({ type: "UGT_HIDE_TTS_OVERLAY_RELAY" });
       return;
     }
-    if (!ttsOverlayDiv) return;
+    if (!ttsOverlayDiv) {
+      console.log('[UGT TTS] No overlay div to hide');
+      return;
+    }
     
     if (ttsOverlayDiv._spinnerInterval) {
       clearInterval(ttsOverlayDiv._spinnerInterval);
     }
     
+    console.log('[UGT TTS] Removing overlay div');
     ttsOverlayDiv.remove();
     ttsOverlayDiv = null;
   }
@@ -3807,9 +3820,26 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   }
   
-  function playTTSAudio(base64Audio, mimeType) {
+  function playTTSAudio(base64Audio, mimeType, statusCallback) {
     // Stop any existing audio
     stopTTSAudio();
+    
+    let callbackCalled = false;
+    const reportStatus = (success) => {
+      if (!callbackCalled && statusCallback) {
+        callbackCalled = true;
+        console.log('[UGT TTS] Reporting status:', success ? 'success' : 'failed');
+        statusCallback(success);
+      }
+    };
+    
+    // Timeout to ensure callback is always called (in case events don't fire)
+    setTimeout(() => {
+      if (!callbackCalled) {
+        console.log('[UGT TTS] Callback timeout - assuming success since no error');
+        reportStatus(true);
+      }
+    }, 3000);
     
     try {
       // Convert base64 to blob
@@ -3826,11 +3856,14 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       
       // Update overlay when playing starts
       ttsAudioElement.addEventListener('playing', () => {
+        console.log('[UGT TTS] Audio playing event fired');
         updateTTSOverlay("Playing...");
+        reportStatus(true); // Report success when audio actually starts
       });
       
       // Clean up when done
       ttsAudioElement.addEventListener('ended', () => {
+        console.log('[UGT TTS] Audio ended event fired, hiding overlay');
         URL.revokeObjectURL(audioUrl);
         hideTTSOverlay();
         ttsAudioElement = null;
@@ -3838,21 +3871,24 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       
       // Handle errors
       ttsAudioElement.addEventListener('error', (e) => {
-        console.error("Audio playback error:", e);
+        console.error("[UGT TTS] Audio playback error:", e);
         URL.revokeObjectURL(audioUrl);
         hideTTSOverlay();
         ttsAudioElement = null;
+        reportStatus(false);
       });
       
       // Play
       ttsAudioElement.play().catch(err => {
         console.error("Error playing TTS audio:", err);
         hideTTSOverlay();
+        reportStatus(false);
       });
       
     } catch (e) {
       console.error("Error creating audio from base64:", e);
       hideTTSOverlay();
+      reportStatus(false);
     }
   }
   

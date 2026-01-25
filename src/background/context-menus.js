@@ -1,0 +1,191 @@
+// src/background/context-menus.js
+// Context menu setup and management
+
+import {
+  CONTEXT_MENU_PARENT,
+  CONTEXT_MENU_TRANSLATE,
+  CONTEXT_MENU_SPEAK,
+  CONTEXT_MENU_LESSON,
+  CONTEXT_MENU_ASK,
+  CONTEXT_MENU_SETTINGS
+} from '../shared/constants.js';
+
+/**
+ * Build the translate menu title based on settings
+ */
+export function buildTranslateTitle(settings) {
+  let langName = "English";
+  let providerName = "OpenAI";
+
+  if (settings) {
+    providerName = (settings.provider || "openai").replace(/^./, (c) => c.toUpperCase());
+
+    if (settings.languageMode === 'custom') {
+      if (settings.customLanguage && settings.customLanguage.trim() !== "") {
+        langName = settings.customLanguage.trim();
+      } else {
+        langName = "Custom";
+      }
+    } else if (settings.targetLanguage) {
+      langName = settings.targetLanguage;
+    }
+  }
+
+  // Truncate langName if it's too long for the context menu
+  if (langName.length > 16) {
+    langName = langName.substring(0, 16) + "...";
+  }
+
+  return `Translate to ${langName} with ${providerName}`;
+}
+
+/**
+ * Build the speak menu title based on TTS settings
+ */
+export function buildSpeakTitle(settings) {
+  const ttsProvider = settings?.ttsProvider || 'elevenlabs';
+  let voiceName = "Default";
+  let providerLabel = "ElevenLabs";
+  
+  if (ttsProvider === 'google') {
+    providerLabel = "Google TTS";
+    if (settings && settings.googleTtsVoiceName) {
+      // Extract just the voice type from the full name
+      const match = settings.googleTtsVoiceName.match(/- ([^(]+)/);
+      voiceName = match ? match[1].trim() : settings.googleTtsVoiceName;
+    }
+  } else {
+    // ElevenLabs
+    if (settings && settings.elevenlabsCustomVoiceId && settings.elevenlabsCustomVoiceId.length > 0) {
+      voiceName = "Custom Voice";
+    } else if (settings && settings.elevenlabsVoiceName) {
+      voiceName = settings.elevenlabsVoiceName;
+    }
+  }
+  
+  // Truncate if too long
+  if (voiceName.length > 20) {
+    voiceName = voiceName.substring(0, 20) + "...";
+  }
+  
+  return `Speak with ${providerLabel} (${voiceName})`;
+}
+
+/**
+ * Create all context menu items
+ */
+export function createContextMenus(settings = {}) {
+  chrome.contextMenus.removeAll(() => {
+    // Create parent menu item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_PARENT,
+      title: "UGTBrowser Language Tools",
+      contexts: ["selection", "page", "link"]
+    });
+    
+    // Create Translate child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildTranslateTitle(settings),
+      contexts: ["selection", "link"]
+    });
+    
+    // Create Speak child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_SPEAK,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildSpeakTitle(settings),
+      contexts: ["selection", "link"]
+    });
+    
+    // Create Lesson child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_LESSON,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Create Lesson",
+      contexts: ["selection", "link"]
+    });
+    
+    // Create Ask child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ASK,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Ask About Selection",
+      contexts: ["selection", "link"]
+    });
+    
+    // Create a disabled hint item (only when NO selection)
+    chrome.contextMenus.create({
+      id: "ugtbrowser_hint",
+      parentId: CONTEXT_MENU_PARENT,
+      title: "(Highlight some text first!)",
+      contexts: ["page"],
+      enabled: false
+    });
+    
+    // Create Settings child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_SETTINGS,
+      parentId: CONTEXT_MENU_PARENT,
+      title: "Settings",
+      contexts: ["selection", "page", "link"]
+    });
+  });
+}
+
+/**
+ * Get effective settings from storage for context menu display
+ */
+export function getEffectiveSettings(fullSettings) {
+  return {
+    provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
+    languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
+    targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
+    customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
+    ttsProvider: fullSettings.ttsProvider || 'elevenlabs',
+    elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',
+    elevenlabsCustomVoiceId: fullSettings.elevenlabsCustomVoiceId || '',
+    googleTtsVoiceName: fullSettings.googleTtsVoiceName || 'English (US) - Studio O (female)'
+  };
+}
+
+/**
+ * Initialize context menus on extension install
+ */
+export function initializeContextMenus() {
+  chrome.storage.local.get([
+    'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
+    'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+    'googleTtsVoice', 'googleTtsVoiceName'
+  ], (fullSettings) => {
+    createContextMenus(getEffectiveSettings(fullSettings));
+  });
+}
+
+/**
+ * Update context menus when settings change
+ */
+export function setupSettingsChangeListener() {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local") {
+      const relevantChanges = [
+        'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
+        'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+        'googleTtsVoice', 'googleTtsVoiceName'
+      ];
+      
+      let needsUpdate = relevantChanges.some(key => changes[key]);
+
+      if (needsUpdate) {
+        chrome.storage.local.get([
+          'settings', 'languageMode', 'targetLanguage', 'customLanguage', 'selectedProvider',
+          'ttsProvider', 'elevenlabsVoice', 'elevenlabsVoiceName', 'elevenlabsCustomVoiceId',
+          'googleTtsVoice', 'googleTtsVoiceName'
+        ], (fullSettings) => {
+          createContextMenus(getEffectiveSettings(fullSettings));
+        });
+      }
+    }
+  });
+}
