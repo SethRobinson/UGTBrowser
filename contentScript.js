@@ -3407,6 +3407,63 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         }
         streamingPort = null;
       }
+      
+      // If there's a cultural nuances container with content, finalize it with action buttons and chat
+      if (culturalNuancesContainer && culturalNuancesContent) {
+        const rawText = culturalNuancesContent.textContent || '';
+        if (rawText.trim()) {
+          // Add stopped notice to the content
+          const stoppedContent = rawText + '\n\n_[Translation stopped by user]_';
+          culturalNuancesContent.innerHTML = simpleMarkdownToHtml(stoppedContent);
+          
+          // Add action buttons if not already present
+          if (!culturalNuancesContainer.querySelector('.ugt-message-actions')) {
+            const htmlContent = simpleMarkdownToHtml(stoppedContent);
+            const actionButtons = createMessageActionButtons(stoppedContent, htmlContent);
+            culturalNuancesContainer.appendChild(actionButtons);
+          }
+          
+          // Create chat interface if not already present
+          if (!culturalNuancesContainer.querySelector('.ugt-chat-section')) {
+            createChatInterface(culturalNuancesContainer, stoppedContent);
+          }
+          
+          // Update the session context with translation info
+          const chatSessionId = culturalNuancesContainer.dataset.chatSessionId;
+          if (chatSessionId) {
+            const sessionContext = chatSessions.get(chatSessionId);
+            if (sessionContext) {
+              // Collect the ORIGINAL text (before translation) from the translated spans
+              let collectedOriginalText = "";
+              let collectedTranslatedText = "";
+              if (currentTranslationBatchId) {
+                const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                const originalTexts = [];
+                const translatedTexts = [];
+                batchSegments.forEach(span => {
+                  const originalText = span.getAttribute('data-original-text');
+                  const translatedText = span.getAttribute('data-translated-text');
+                  if (originalText && originalText.trim()) {
+                    originalTexts.push(originalText.trim());
+                  }
+                  if (translatedText && translatedText.trim()) {
+                    translatedTexts.push(translatedText.trim());
+                  }
+                });
+                collectedOriginalText = originalTexts.join(' ');
+                collectedTranslatedText = translatedTexts.join(' ');
+              }
+              
+              sessionContext.originalText = collectedOriginalText || '';
+              sessionContext.translatedText = collectedTranslatedText || currentStreamingText.trim();
+              // Get provider name from settings (capitalize first letter)
+              const provider = currentTranslationSettings?.provider || 'AI';
+              sessionContext.providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+            }
+          }
+        }
+      }
+      
       streamingActiveFrags = null;
       streamingRange = null;
       currentStreamingText = ""; // Clear current text

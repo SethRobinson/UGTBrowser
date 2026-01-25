@@ -638,10 +638,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       
       const portId = Date.now().toString();
-      activeStreamingPorts.set(portId, { port: port, tabId: sender.tab.id, lastActivity: Date.now() });
+      const abortController = new AbortController();
+      activeStreamingPorts.set(portId, { port: port, tabId: sender.tab.id, lastActivity: Date.now(), abortController: abortController });
       
       port.onDisconnect.addListener(() => {
-        console.log(`Port ${portId} disconnected, removing from active ports map`);
+        console.log(`Port ${portId} disconnected, aborting stream and removing from active ports map`);
+        abortController.abort();
         activeStreamingPorts.delete(portId);
       });
       
@@ -665,12 +667,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       });
       
-      fetchTranslationStreaming(actualPromptText, settings, port)
+      fetchTranslationStreaming(actualPromptText, settings, port, abortController.signal)
         .then(result => {
-          console.log("fetchTranslationStreaming resolved. Sending STREAM_COMPLETE.");
-          port.postMessage({ type: "STREAM_COMPLETE", success: true /* finalContent can be omitted */ });
+          if (!abortController.signal.aborted) {
+            console.log("fetchTranslationStreaming resolved. Sending STREAM_COMPLETE.");
+            try {
+              port.postMessage({ type: "STREAM_COMPLETE", success: true /* finalContent can be omitted */ });
+            } catch (e) {
+              console.log("Could not send STREAM_COMPLETE, port likely disconnected:", e.message);
+            }
+          }
         })
         .catch(error => {
+          // Don't log or send error if it was an intentional abort
+          if (error.name === 'AbortError' || abortController.signal.aborted) {
+            console.log("Translation streaming was cancelled by user");
+            return;
+          }
           console.error("fetchTranslationStreaming error:", error);
           try {
             port.postMessage({ type: "STREAM_ERROR", error: error.message || String(error) });
@@ -1992,7 +2005,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // New streaming translation function
-async function fetchTranslationStreaming(promptText, settings, port) {
+async function fetchTranslationStreaming(promptText, settings, port, abortSignal = null) {
   const { provider = "openai", model, apiKey, internalBatch } = settings;
   
   lastLLMRequest = {
@@ -2013,13 +2026,13 @@ async function fetchTranslationStreaming(promptText, settings, port) {
   try {
     switch (provider) {
       case "openai":
-        await fetchFromOpenAIStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings);
+        await fetchFromOpenAIStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings, abortSignal);
         break;
       case "anthropic":
-        await fetchFromAnthropicStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug);
+        await fetchFromAnthropicStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, abortSignal);
         break;
       case "gemini":
-        await fetchFromGeminiStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings);
+        await fetchFromGeminiStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings, abortSignal);
         break;
       default:
         throw new Error(`Unknown provider: ${provider}`);
@@ -2137,7 +2150,7 @@ async function fetchFromOpenAI(prompt, model, apiKey) {
   return data.choices[0].message.content;
 }
 
-async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback, settings = {}) {
+async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
   const modelToUse = model || "gpt-4o";
@@ -2183,111 +2196,158 @@ async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallb
     }
   }
   
-  const response = await fetch(endpoint, {
+  const fetchOptions = {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`
     },
     body: JSON.stringify(requestBody)
-  });
+  };
   
-  if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
+  // Add abort signal if provided
+  if (abortSignal) {
+    fetchOptions.signal = abortSignal;
   }
   
-  if (useResponsesApi) {
-    // Responses API returns a complete response (non-streaming)
-    console.log("OpenAI Responses API: parsing complete response");
-    const data = await response.json();
+  try {
+    const response = await fetch(endpoint, fetchOptions);
     
-    try {
-      // Parse Responses API response format
-      let textContent = "";
-      if (data.output && Array.isArray(data.output)) {
-        for (const item of data.output) {
-          if (item.type === "message" && item.content && Array.isArray(item.content)) {
-            for (const contentItem of item.content) {
-              if (contentItem.type === "output_text" && contentItem.text) {
-                textContent += contentItem.text;
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
+    }
+    
+    if (useResponsesApi) {
+      // Responses API returns a complete response (non-streaming)
+      console.log("OpenAI Responses API: parsing complete response");
+      const data = await response.json();
+      
+      try {
+        // Parse Responses API response format
+        let textContent = "";
+        if (data.output && Array.isArray(data.output)) {
+          for (const item of data.output) {
+            if (item.type === "message" && item.content && Array.isArray(item.content)) {
+              for (const contentItem of item.content) {
+                if (contentItem.type === "output_text" && contentItem.text) {
+                  textContent += contentItem.text;
+                }
               }
             }
           }
         }
-      }
-      
-      // Fallback: try direct output_text property
-      if (!textContent && data.output_text) {
-        textContent = data.output_text;
-      }
-      
-      if (textContent) {
-        // Send the complete content as chunks to maintain compatibility with streaming UI
-        port.postMessage({ 
-          type: "STREAM_CHUNK", 
-          chunk: textContent,
-        });
-        if (updateCallback) updateCallback(textContent);
-        console.log("OpenAI Responses API: sent complete response");
-      } else {
-        console.error("OpenAI Responses API: could not extract text from response", data);
-        throw new Error("Could not extract text from Responses API response");
-      }
-    } catch (e) {
-      console.error("Error parsing Responses API response:", e);
-      throw new Error(`Error parsing Responses API response: ${e.message}`);
-    }
-  } else {
-    // Standard Chat Completions API streaming
-    console.log("OpenAI stream connected, reading data (tagged format)");
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-    let chunkCount = 0;
-    
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log("OpenAI stream complete after", chunkCount, "chunks");
-          break;
+        
+        // Fallback: try direct output_text property
+        if (!textContent && data.output_text) {
+          textContent = data.output_text;
         }
         
-        const chunk = decoder.decode(value);
-        buffer += chunk;
-        
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; 
-        
-        for (const line of lines) {
-          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+        if (textContent) {
+          // Send the complete content as chunks to maintain compatibility with streaming UI (only if not aborted)
+          if (!abortSignal || !abortSignal.aborted) {
             try {
-              const data = JSON.parse(line.substring(6));
-              if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-                const newContent = data.choices[0].delta.content;
-                // Send raw delta content directly to content script
-                port.postMessage({ 
-                  type: "STREAM_CHUNK", 
-                  chunk: newContent,
-                });
-                if (updateCallback) updateCallback(newContent);
-                chunkCount++;
-              }
+              port.postMessage({ 
+                type: "STREAM_CHUNK", 
+                chunk: textContent,
+              });
             } catch (e) {
-              console.error("Error parsing OpenAI stream line:", e, "Line:", line);
+              console.log("Port disconnected during OpenAI Responses API, stopping");
+              return;
             }
-          } else if (line === "data: [DONE]") {
-            console.log("OpenAI stream [DONE] marker received");
+          }
+          if (updateCallback) updateCallback(textContent);
+          console.log("OpenAI Responses API: sent complete response");
+        } else {
+          console.error("OpenAI Responses API: could not extract text from response", data);
+          throw new Error("Could not extract text from Responses API response");
+        }
+      } catch (e) {
+        console.error("Error parsing Responses API response:", e);
+        throw new Error(`Error parsing Responses API response: ${e.message}`);
+      }
+    } else {
+      // Standard Chat Completions API streaming
+      console.log("OpenAI stream connected, reading data (tagged format)");
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let chunkCount = 0;
+      
+      try {
+        while (true) {
+          // Check if aborted before reading
+          if (abortSignal && abortSignal.aborted) {
+            console.log("OpenAI stream aborted by user");
+            break;
+          }
+          
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log("OpenAI stream complete after", chunkCount, "chunks");
+            break;
+          }
+          
+          const chunk = decoder.decode(value);
+          buffer += chunk;
+          
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; 
+          
+          for (const line of lines) {
+            // Check abort before processing each line
+            if (abortSignal && abortSignal.aborted) {
+              break;
+            }
+            
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const data = JSON.parse(line.substring(6));
+                if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+                  const newContent = data.choices[0].delta.content;
+                  // Send raw delta content directly to content script (only if not aborted)
+                  if (!abortSignal || !abortSignal.aborted) {
+                    try {
+                      port.postMessage({ 
+                        type: "STREAM_CHUNK", 
+                        chunk: newContent,
+                      });
+                    } catch (e) {
+                      // Port likely disconnected, stop processing
+                      console.log("Port disconnected during OpenAI streaming, stopping");
+                      return;
+                    }
+                  }
+                  if (updateCallback) updateCallback(newContent);
+                  chunkCount++;
+                }
+              } catch (e) {
+                // Only log parsing errors if not aborted
+                if (!abortSignal || !abortSignal.aborted) {
+                  console.error("Error parsing OpenAI stream line:", e, "Line:", line);
+                }
+              }
+            } else if (line === "data: [DONE]") {
+              console.log("OpenAI stream [DONE] marker received");
+            }
           }
         }
+        
+        if (!abortSignal || !abortSignal.aborted) {
+          console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
+        }
+      } finally {
+        reader.releaseLock();
       }
-      
-      console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
-    } finally {
-      reader.releaseLock();
     }
+  } catch (error) {
+    // Don't treat abort as an error
+    if (error.name === 'AbortError') {
+      console.log("OpenAI streaming was cancelled");
+      return;
+    }
+    throw error;
   }
 }
 
@@ -2347,7 +2407,7 @@ async function fetchFromAnthropic(prompt, model, apiKey) {
   }
 }
 
-async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCallback) {
+async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCallback, abortSignal = null) {
   if (!apiKey) throw new Error("Anthropic API key is required");
   
   console.log("Starting Anthropic streaming request with new tagged format handling");
@@ -2377,7 +2437,7 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
   }
   
   try {
-    const response = await fetch(endpoint, {
+    const fetchOptions = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2386,7 +2446,14 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify(requestBody)
-    });
+    };
+    
+    // Add abort signal if provided
+    if (abortSignal) {
+      fetchOptions.signal = abortSignal;
+    }
+    
+    const response = await fetch(endpoint, fetchOptions);
     
     if (!response.ok) {
       const error = await response.json().catch(() => null);
@@ -2402,6 +2469,12 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
     
     try {
       while (true) {
+        // Check if aborted before reading
+        if (abortSignal && abortSignal.aborted) {
+          console.log("Anthropic stream aborted by user");
+          break;
+        }
+        
         const { done, value } = await reader.read();
         if (done) {
           console.log("Anthropic stream complete after", chunkCount, "chunks");
@@ -2415,6 +2488,11 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
         buffer = lines.pop() || "";
         
         for (const line of lines) {
+          // Check abort before processing each line
+          if (abortSignal && abortSignal.aborted) {
+            break;
+          }
+          
           if (line.trim() && line.startsWith("data:")) {
             try {
               const cleanedLine = line.substring(5).trim();
@@ -2431,26 +2509,44 @@ async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, updateCa
                 }
                 
                 if (newText) {
-                  // Send raw delta content directly
-                  port.postMessage({ 
-                    type: "STREAM_CHUNK", 
-                    chunk: newText 
-                  });
+                  // Send raw delta content directly (only if not aborted)
+                  if (!abortSignal || !abortSignal.aborted) {
+                    try {
+                      port.postMessage({ 
+                        type: "STREAM_CHUNK", 
+                        chunk: newText 
+                      });
+                    } catch (e) {
+                      // Port likely disconnected, stop processing
+                      console.log("Port disconnected during Anthropic streaming, stopping");
+                      return;
+                    }
+                  }
                   if (updateCallback) updateCallback(newText);
                   chunkCount++;
                 }
               }
             } catch (e) {
-              console.error("Error parsing Anthropic stream line:", e, "Line:", line);
+              // Only log parsing errors if not aborted
+              if (!abortSignal || !abortSignal.aborted) {
+                console.error("Error parsing Anthropic stream line:", e, "Line:", line);
+              }
             }
           }
         }
       }
-      console.log("Anthropic streaming finished from provider function, total chunks:", chunkCount);
+      if (!abortSignal || !abortSignal.aborted) {
+        console.log("Anthropic streaming finished from provider function, total chunks:", chunkCount);
+      }
     } finally {
       reader.releaseLock();
     }
   } catch (error) {
+    // Don't treat abort as an error
+    if (error.name === 'AbortError') {
+      console.log("Anthropic streaming was cancelled");
+      return;
+    }
     console.error("Anthropic API error with model:", modelToUse, error);
     throw new Error(`Anthropic API error: ${error.message}`);
   }
@@ -2523,7 +2619,7 @@ async function asyncWithTimeout(asyncFunction, timeoutMs) {
   });
 }
 
-async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallback, settings = {}) {
+async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallback, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   console.log("Starting Gemini streaming request with new tagged format handling (revised parsing)");
@@ -2532,6 +2628,11 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
   console.log(`Using Gemini model: ${modelId}, thinkingEnabled: ${thinkingEnabled}`);
   
   const heartbeatInterval = setInterval(() => {
+    // Stop heartbeat if aborted
+    if (abortSignal && abortSignal.aborted) {
+      clearInterval(heartbeatInterval);
+      return;
+    }
     try {
       port.postMessage({ type: "HEARTBEAT_PROVIDER", provider: "Gemini" });
     } catch (e) {
@@ -2581,11 +2682,18 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
     });
     
     console.log("Gemini: Fetching endpoint:", endpoint);
-    const fetchPromise = fetch(endpoint, {
+    const fetchOptions = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody)
-    });
+    };
+    
+    // Add abort signal if provided
+    if (abortSignal) {
+      fetchOptions.signal = abortSignal;
+    }
+    
+    const fetchPromise = fetch(endpoint, fetchOptions);
     
     const response = await Promise.race([fetchPromise, timeoutPromise]);
     console.log("Gemini: Response received, status:", response.status);
@@ -2621,6 +2729,12 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
 
     try {
       while (true) {
+        // Check if aborted before reading
+        if (abortSignal && abortSignal.aborted) {
+          console.log("Gemini stream aborted by user");
+          break;
+        }
+        
         const { done, value } = await reader.read();
         if (done) {
           console.log("Gemini: Stream reader marked done.");
@@ -2639,6 +2753,12 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
 
         // New robust JSON parsing loop
         while (buffer.length > 0) {
+          // Check if aborted before parsing each JSON object
+          if (abortSignal && abortSignal.aborted) {
+            console.log("Gemini: Parsing aborted by user");
+            break;
+          }
+          
           // 1. Pre-processing: Trim whitespace and leading commas.
           let originalBufferBeforeTrim = buffer;
           buffer = buffer.trimStart();
@@ -2707,7 +2827,14 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                               for (const key in item) {
                                 if (item.hasOwnProperty(key) && typeof item[key] === 'string') {
                                   const finalChunk = item[key];
-                                  port.postMessage({ type: "STREAM_CHUNK", chunk: finalChunk });
+                                  if (!abortSignal || !abortSignal.aborted) {
+                                    try {
+                                      port.postMessage({ type: "STREAM_CHUNK", chunk: finalChunk });
+                                    } catch (e) {
+                                      console.log("Port disconnected during Gemini streaming, stopping");
+                                      return;
+                                    }
+                                  }
                                   chunkCount++;
                                   successfullyProcessedInnerJson = true;
                                 }
@@ -2724,7 +2851,14 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                         // console.warn("Gemini: Failed to parse text part as inner JSON array, treating as literal:", textValue, e_inner.message);
                       }
                     }
-                    port.postMessage({ type: "STREAM_CHUNK", chunk: textValue });
+                    if (!abortSignal || !abortSignal.aborted) {
+                      try {
+                        port.postMessage({ type: "STREAM_CHUNK", chunk: textValue });
+                      } catch (e) {
+                        console.log("Port disconnected during Gemini streaming, stopping");
+                        return;
+                      }
+                    }
                     chunkCount++;
                     lastChunkTime = Date.now();
                   }
@@ -2733,12 +2867,26 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                 let fm = `Stream ended by Gemini: ${data.candidates[0].finishReason}`;
                 if (data.candidates[0].finishReason === "SAFETY") fm = "Content blocked: SAFETY";
                 const statusChunk = `<ugt_status_gemini>[${fm}]</ugt_status_gemini>`;
-                port.postMessage({ type: "STREAM_CHUNK", chunk: statusChunk });
+                if (!abortSignal || !abortSignal.aborted) {
+                  try {
+                    port.postMessage({ type: "STREAM_CHUNK", chunk: statusChunk });
+                  } catch (e) {
+                    console.log("Port disconnected during Gemini streaming, stopping");
+                    return;
+                  }
+                }
                 chunkCount++; lastChunkTime = Date.now();
               } else if (data.error) {
                 console.error("Gemini explicit error in stream data object:", data.error);
                 const errorChunk = `<ugt_status_gemini>[Error: ${data.error.message || 'Unknown Gemini error'}]</ugt_status_gemini>`;
-                port.postMessage({ type: "STREAM_CHUNK", chunk: errorChunk });
+                if (!abortSignal || !abortSignal.aborted) {
+                  try {
+                    port.postMessage({ type: "STREAM_CHUNK", chunk: errorChunk });
+                  } catch (e) {
+                    console.log("Port disconnected during Gemini streaming, stopping");
+                    return;
+                  }
+                }
                 chunkCount++; lastChunkTime = Date.now();
               }
 
@@ -2774,7 +2922,14 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                                     for (const key in item) {
                                       if (item.hasOwnProperty(key) && typeof item[key] === 'string') {
                                         const finalChunk = item[key];
-                                        port.postMessage({ type: "STREAM_CHUNK", chunk: finalChunk });
+                                        if (!abortSignal || !abortSignal.aborted) {
+                                          try {
+                                            port.postMessage({ type: "STREAM_CHUNK", chunk: finalChunk });
+                                          } catch (e) {
+                                            console.log("Port disconnected during Gemini streaming (recovery), stopping");
+                                            return;
+                                          }
+                                        }
                                         chunkCount++;
                                         successfullyProcessedInnerJson = true;
                                       }
@@ -2790,7 +2945,14 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                               // console.warn("Gemini (recovery): Failed to parse text part as inner JSON array:", textValue, e_inner_recovery.message);
                             }
                           }
-                          port.postMessage({ type: "STREAM_CHUNK", chunk: textValue });
+                          if (!abortSignal || !abortSignal.aborted) {
+                            try {
+                              port.postMessage({ type: "STREAM_CHUNK", chunk: textValue });
+                            } catch (e) {
+                              console.log("Port disconnected during Gemini streaming (recovery), stopping");
+                              return;
+                            }
+                          }
                           chunkCount++;
                           lastChunkTime = Date.now();
                         }
@@ -2799,12 +2961,26 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
                       let fm = `Stream ended by Gemini: ${data.candidates[0].finishReason}`;
                       if (data.candidates[0].finishReason === "SAFETY") fm = "Content blocked: SAFETY";
                       const statusChunk = `<ugt_status_gemini>[${fm}]</ugt_status_gemini>`;
-                      port.postMessage({ type: "STREAM_CHUNK", chunk: statusChunk });
+                      if (!abortSignal || !abortSignal.aborted) {
+                        try {
+                          port.postMessage({ type: "STREAM_CHUNK", chunk: statusChunk });
+                        } catch (e) {
+                          console.log("Port disconnected during Gemini streaming (recovery), stopping");
+                          return;
+                        }
+                      }
                       chunkCount++; lastChunkTime = Date.now();
                     } else if (data.error) {
                       console.error("Gemini explicit error in stream data object (recovery):", data.error);
                       const errorChunk = `<ugt_status_gemini>[Error: ${data.error.message || 'Unknown Gemini error'}]</ugt_status_gemini>`;
-                      port.postMessage({ type: "STREAM_CHUNK", chunk: errorChunk });
+                      if (!abortSignal || !abortSignal.aborted) {
+                        try {
+                          port.postMessage({ type: "STREAM_CHUNK", chunk: errorChunk });
+                        } catch (e) {
+                          console.log("Port disconnected during Gemini streaming (recovery), stopping");
+                          return;
+                        }
+                      }
                       chunkCount++; lastChunkTime = Date.now();
                     }
 
@@ -2845,8 +3021,13 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
 
         // Content heartbeat for long gaps between actual content chunks from Gemini
         const now = Date.now();
-        if (now - lastChunkTime > 15000 && streamContentReceived) { 
-            port.postMessage({ type: "HEARTBEAT_PROVIDER", provider: "Gemini", sub_type: "content_gap" });
+        if (now - lastChunkTime > 15000 && streamContentReceived && (!abortSignal || !abortSignal.aborted)) { 
+            try {
+              port.postMessage({ type: "HEARTBEAT_PROVIDER", provider: "Gemini", sub_type: "content_gap" });
+            } catch (e) {
+              console.log("Port disconnected during Gemini content heartbeat, stopping");
+              break;
+            }
             lastChunkTime = now;
         }
 
@@ -2859,6 +3040,11 @@ async function fetchFromGeminiStreaming(prompt, model, apiKey, port, updateCallb
     }
     
   } catch (error) {
+    // Don't treat abort as an error
+    if (error.name === 'AbortError') {
+      console.log("Gemini streaming was cancelled");
+      return;
+    }
     console.error(`Gemini Streaming Main Catch Block Error (${modelId}):`, error.message, error);
     throw error; // Re-throw for fetchTranslationStreaming to handle
   } finally {
