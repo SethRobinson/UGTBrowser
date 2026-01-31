@@ -2189,7 +2189,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "TRANSLATE_SELECTION") {
-      handleTranslate(msg.text, msg.settings);
+      handleTranslate(msg.text, msg.settings, msg.simpleMode);
       sendResponse();
       return true;
     } else if (msg.type === "CREATE_LESSON") {
@@ -2873,8 +2873,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           }
           
           // Handle cultural nuances - either update existing container or create new one
+          // Skip cultural nuances and chat interface in simple mode (Translate Only)
           const extraText = streamBuffer.trim();
-          if (extraText && lastTranslatedElement) {
+          if (extraText && lastTranslatedElement && !msg.simpleMode) {
             // Use existing container if created during streaming, otherwise create new one
             let containerToUse = culturalNuancesContainer;
             
@@ -3125,7 +3126,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   });
 
-  async function handleTranslate(selectedText, settings) {
+  async function handleTranslate(selectedText, settings, simpleMode = false) {
     // selectedText is info.selectionText, so it *should* be valid if we got this far.
     if (!selectedText || !selectedText.trim()) {
       console.warn("UGTBrowser: handleTranslate called without selectedText. This shouldn't happen if background script validated selection.");
@@ -3133,6 +3134,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       showCustomError("UGTBrowser: No text was provided for translation by the extension."); 
       return;
     }
+    
+    // Store simpleMode for use in UI decisions later
+    const isSimpleMode = simpleMode;
 
     let activeRange = savedRange; // Prioritize the range captured by selectionchange
 
@@ -3265,7 +3269,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               ...settings, 
               streaming: true,
               targetLang: settings.targetLang || "English" // Ensure targetLang is passed
-            }
+            },
+            simpleMode: isSimpleMode // Skip creative task and follow-up chat when true
           }
         },
         (resp) => {
@@ -4054,7 +4059,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     console.log('UGT Standalone: Initializing with action:', standaloneConfig.action);
     
-    const { action, text } = standaloneConfig;
+    const { action, text, simpleMode } = standaloneConfig;
     
     switch (action) {
       case 'lesson':
@@ -4071,7 +4076,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       case 'translate':
         // For translate in standalone mode, we need to handle it differently
         // Create a simple display panel instead of inline replacement
-        handleStandaloneTranslate(text);
+        handleStandaloneTranslate(text, simpleMode);
         break;
         
       default:
@@ -4080,7 +4085,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   });
   
   // Handle translation in standalone mode (creates a display panel instead of inline replacement)
-  function handleStandaloneTranslate(text) {
+  function handleStandaloneTranslate(text, simpleMode = false) {
     if (!text || !text.trim()) {
       console.warn('Standalone translate called without text');
       return;
@@ -4202,8 +4207,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             });
           });
           
-          // Add chat interface for follow-up questions
-          createStandaloneTranslateChat(translatePanel, text, translatedText);
+          // Add chat interface for follow-up questions (skip in simple mode)
+          if (!simpleMode) {
+            createStandaloneTranslateChat(translatePanel, text, translatedText);
+          }
         }
         
         // Remove listener after handling

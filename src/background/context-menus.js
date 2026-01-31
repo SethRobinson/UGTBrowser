@@ -4,6 +4,7 @@
 import {
   CONTEXT_MENU_PARENT,
   CONTEXT_MENU_TRANSLATE,
+  CONTEXT_MENU_TRANSLATE_SIMPLE,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
@@ -13,7 +14,7 @@ import {
 /**
  * Build the translate menu title based on settings
  */
-export function buildTranslateTitle(settings) {
+export function buildTranslateTitle(settings, simpleMode = false) {
   let langName = "English";
   let providerName = "OpenAI";
 
@@ -36,7 +37,8 @@ export function buildTranslateTitle(settings) {
     langName = langName.substring(0, 16) + "...";
   }
 
-  return `Translate to ${langName} with ${providerName}`;
+  const baseTitle = `Translate to ${langName} with ${providerName}`;
+  return simpleMode ? `${baseTitle} (Translate Only)` : baseTitle;
 }
 
 /**
@@ -83,11 +85,19 @@ export function createContextMenus(settings = {}) {
       contexts: ["selection", "page", "link"]
     });
     
-    // Create Translate child item
+    // Create Translate child item (full version with creative task and follow-up chat)
     chrome.contextMenus.create({
       id: CONTEXT_MENU_TRANSLATE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings),
+      contexts: ["selection", "link"]
+    });
+    
+    // Create Translate Simple child item (translation only, no extras)
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE_SIMPLE,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildTranslateTitle(settings, true),
       contexts: ["selection", "link"]
     });
     

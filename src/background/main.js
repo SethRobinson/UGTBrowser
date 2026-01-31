@@ -3,12 +3,14 @@
 
 import {
   CONTEXT_MENU_TRANSLATE,
+  CONTEXT_MENU_TRANSLATE_SIMPLE,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
   CONTEXT_MENU_SETTINGS,
   defaultPrompts,
-  defaultLessonPrompt
+  defaultLessonPrompt,
+  unifiedDefaultPrompt
 } from '../shared/constants.js';
 
 import { isRestrictedUrl, supportsTemperature } from '../shared/utils.js';
@@ -124,10 +126,12 @@ function showRestrictedPageWarning(url, action = 'translate') {
 /**
  * Open standalone popup window for restricted pages
  */
-function openStandaloneWindow(action, text, isRestricted = true) {
+function openStandaloneWindow(action, text, options = {}) {
+  const { isRestricted = true, simpleMode = false } = options;
   const encodedText = encodeURIComponent(text);
   const restrictedParam = isRestricted ? '&restricted=true' : '';
-  const url = chrome.runtime.getURL(`standalone.html?action=${action}&text=${encodedText}${restrictedParam}`);
+  const simpleModeParam = simpleMode ? '&simpleMode=true' : '';
+  const url = chrome.runtime.getURL(`standalone.html?action=${action}&text=${encodedText}${restrictedParam}${simpleModeParam}`);
   
   chrome.windows.create({
     url: url,
@@ -458,13 +462,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function handleTranslationMessage(message, sender, sendResponse) {
-  const { textPayload, settings } = message.payload;
+  const { textPayload, settings, simpleMode } = message.payload;
   
   let actualPromptText = "";
   const provider = settings.provider || "openai";
   const targetLang = settings.targetLang || "English";
 
-  if (settings.promptTemplate && settings.promptTemplate.trim() !== "") {
+  // In simpleMode, always use the simple unified prompt without creative tasks
+  if (simpleMode) {
+    actualPromptText = unifiedDefaultPrompt;
+  } else if (settings.promptTemplate && settings.promptTemplate.trim() !== "") {
     actualPromptText = settings.promptTemplate;
   } else {
     actualPromptText = defaultPrompts[provider] || defaultPrompts["openai"];
@@ -524,7 +531,7 @@ function handleTranslationMessage(message, sender, sendResponse) {
       .then(() => {
         if (!abortController.signal.aborted) {
           try {
-            port.postMessage({ type: "STREAM_COMPLETE", success: true });
+            port.postMessage({ type: "STREAM_COMPLETE", success: true, simpleMode: !!simpleMode });
           } catch (e) {
             console.log("Could not send STREAM_COMPLETE:", e.message);
           }
@@ -813,7 +820,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
   
   if (info.menuItemId === CONTEXT_MENU_TRANSLATE) {
-    await handleTranslateMenuClick(info, tab);
+    await handleTranslateMenuClick(info, tab, false);
+    return;
+  }
+  
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE_SIMPLE) {
+    await handleTranslateMenuClick(info, tab, true);
     return;
   }
   
@@ -833,10 +845,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-async function handleTranslateMenuClick(info, tab) {
+async function handleTranslateMenuClick(info, tab, simpleMode = false) {
   if (isRestrictedUrl(tab.url)) {
     if (info.selectionText) {
-      openStandaloneWindow('translate', info.selectionText);
+      openStandaloneWindow('translate', info.selectionText, { isRestricted: true, simpleMode });
     } else {
       showRestrictedPageWarning(tab.url);
     }
@@ -853,9 +865,9 @@ async function handleTranslateMenuClick(info, tab) {
   const settings = data.settings || {};
   
   try {
-    chrome.tabs.sendMessage(tab.id, { type: "TRANSLATE_SELECTION", text: selectionText, settings }, { frameId: info.frameId }, (response) => {
+    chrome.tabs.sendMessage(tab.id, { type: "TRANSLATE_SELECTION", text: selectionText, settings, simpleMode }, { frameId: info.frameId }, (response) => {
       if (chrome.runtime.lastError) {
-        openStandaloneWindow('translate', selectionText);
+        openStandaloneWindow('translate', selectionText, { isRestricted: false, simpleMode });
       }
     });
   } catch (error) {
@@ -991,7 +1003,7 @@ async function handleSpeakMenuClick(info, tab) {
 async function handleLessonMenuClick(info, tab) {
   if (isRestrictedUrl(tab.url)) {
     if (info.selectionText) {
-      openStandaloneWindow('lesson', info.selectionText);
+      openStandaloneWindow('lesson', info.selectionText, { isRestricted: true });
     } else {
       showRestrictedPageWarning(tab.url, 'lesson');
     }
@@ -1009,7 +1021,7 @@ async function handleLessonMenuClick(info, tab) {
   
   chrome.tabs.sendMessage(tab.id, { type: "CREATE_LESSON", text: selectionText, lessonPrompt }, { frameId: info.frameId }, (response) => {
     if (chrome.runtime.lastError) {
-      openStandaloneWindow('lesson', selectionText);
+      openStandaloneWindow('lesson', selectionText, { isRestricted: false });
     }
   });
 }
@@ -1017,7 +1029,7 @@ async function handleLessonMenuClick(info, tab) {
 async function handleAskMenuClick(info, tab) {
   if (isRestrictedUrl(tab.url)) {
     if (info.selectionText) {
-      openStandaloneWindow('ask', info.selectionText);
+      openStandaloneWindow('ask', info.selectionText, { isRestricted: true });
     } else {
       showRestrictedPageWarning(tab.url, 'ask');
     }
@@ -1032,7 +1044,7 @@ async function handleAskMenuClick(info, tab) {
   
   chrome.tabs.sendMessage(tab.id, { type: "ASK_ABOUT", text: selectionText }, { frameId: info.frameId }, (response) => {
     if (chrome.runtime.lastError) {
-      openStandaloneWindow('ask', selectionText);
+      openStandaloneWindow('ask', selectionText, { isRestricted: false });
     }
   });
 }

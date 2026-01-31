@@ -4,6 +4,7 @@
   const action = urlParams.get('action');
   const text = decodeURIComponent(urlParams.get('text') || '');
   const showNotice = urlParams.get('restricted') === 'true';
+  const simpleMode = urlParams.get('simpleMode') === 'true';
   
   // Show notice if applicable - explains why a popup window was opened
   if (showNotice) {
@@ -15,7 +16,7 @@
   
   // Update page title based on action
   const titles = {
-    'translate': 'UGTBrowser - Translation',
+    'translate': simpleMode ? 'UGTBrowser - Translation (Simple)' : 'UGTBrowser - Translation',
     'lesson': 'UGTBrowser - Lesson',
     'ask': 'UGTBrowser - Ask'
   };
@@ -32,6 +33,7 @@
   window.UGT_STANDALONE_MODE = {
     action: action,
     text: text,
+    simpleMode: simpleMode,
     container: document.getElementById('standaloneContainer')
   };
   
