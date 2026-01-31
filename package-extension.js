@@ -55,18 +55,21 @@ archive.pipe(output);
 // Add all essential extension files here
 const filesToInclude = [
   'manifest.json',
-  'background.js',
+  'src',
   'contentScript.js',
   'options.html',
   'options.js',
   'options.css',
+  'offscreen.html',
+  'offscreen.js',
+  'standalone.html',
+  'standalone-init.js',
   'icon256.png',
   'icon48.png',
   'icon128.png',
   'privacy_policy.md',
   'LICENSE',
   'README.md'
-  // Add any other files or folders like 'images/', 'lib/', etc.
 ];
 
 filesToInclude.forEach(fileOrDir => {

@@ -4,8 +4,7 @@
   "description": "Inline translation of highlighted text using state-of-the-art AI models.",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "package": "node package-extension.js",
-    "package-firefox": "node package-firefox.js"
+    "package": "node package-extension.js"
   },
   "keywords": [
     "chrome-extension",
