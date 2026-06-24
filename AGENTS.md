@@ -48,7 +48,8 @@ Image translation was added as a right-click image workflow:
 8. The background service worker sends the prepared PNG data URL to the extension offscreen document and returns from the context-menu handler instead of waiting on the long provider request.
 9. The offscreen document converts the data URL to a PNG blob and sends the direct OpenAI `XMLHttpRequest`/`FormData` request to `/v1/images/edits` so upload progress can be reported.
 10. The offscreen document sends completion or error back to the background service worker, which forwards the result to the original content-script frame.
-11. The content script replaces the original image `src` with the returned `data:image/png;base64,...` result and freezes the displayed dimensions to reduce layout shift. Some sites, notably X/Twitter, render the visible image on a sibling CSS `background-image` layer while keeping the real `<img>` transparent for browser image behavior; replacement must update that matching background layer too.
+11. The content script replaces the original image `src`/paint layer with the returned `data:image/png;base64,...` result and freezes the displayed dimensions to reduce layout shift. Some sites, notably X/Twitter, render the visible image on a sibling CSS `background-image` layer while keeping the real `<img>` transparent for browser image behavior; replacement must update that matching background layer too.
+12. After a successful replacement, the content script keeps a compact collapsed action control on the image. Hovering/focusing/clicking it reveals magnifier and flip actions. The magnifier action opens the translated data URL in a normal Chrome window; the flip action toggles the page image between original and translated states, including X/Twitter CSS background layers.
 
 Relevant code:
 

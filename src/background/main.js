@@ -146,6 +146,28 @@ function openStandaloneWindow(action, text, options = {}) {
   });
 }
 
+function openImageTranslationImage(imageDataUrl) {
+  if (!imageDataUrl || typeof imageDataUrl !== 'string') {
+    return Promise.reject(new Error('Translated image data is unavailable.'));
+  }
+
+  return new Promise((resolve, reject) => {
+    chrome.windows.create({
+      url: imageDataUrl,
+      type: 'normal',
+      width: 980,
+      height: 760,
+      focused: true
+    }, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 /**
  * Handle TTS on restricted pages via offscreen document
  */
@@ -611,6 +633,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "OPEN_SETTINGS") {
     chrome.runtime.openOptionsPage();
     return false;
+  }
+
+  if (message.type === "UGT_OPEN_IMAGE_TRANSLATION_IMAGE") {
+    openImageTranslationImage(message.imageDataUrl)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
+    return true;
   }
   
   if (message.type === "GET_LAST_LLM_DATA") {

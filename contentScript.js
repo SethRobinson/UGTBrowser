@@ -2210,6 +2210,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return { rect, clipped };
   }
 
+  function captureImageDisplayState(image) {
+    return {
+      src: image.src || '',
+      currentSrc: image.currentSrc || '',
+      srcAttr: image.getAttribute('src'),
+      srcset: image.getAttribute('srcset'),
+      sizes: image.getAttribute('sizes')
+    };
+  }
+
   function getImageTranslationTarget(srcUrl, requestId) {
     const now = Date.now();
     let image = null;
@@ -2250,12 +2260,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         filter: image.style.filter,
         opacity: image.style.opacity
       },
+      originalImageState: captureImageDisplayState(image),
       sourceUrl: image.currentSrc || image.src || srcUrl || '',
       progressTitle: 'Preparing image',
       progressDetail: '',
       targetLanguage: '',
       translatedImageDataUrl: '',
+      showingTranslatedImage: false,
       overlay: null,
+      actionsOverlay: null,
+      actionsTimer: null,
       timer: null,
       startedAt: 0
     });
@@ -2343,6 +2357,86 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       .ugt-image-translation-error {
         border-color: rgba(239, 68, 68, 0.95);
         animation: none;
+      }
+      .ugt-image-translation-actions {
+        position: fixed;
+        z-index: 2147483647;
+        display: inline-flex;
+        flex-direction: row-reverse;
+        align-items: center;
+        gap: 3px;
+        max-width: 24px;
+        padding: 2px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.35);
+        pointer-events: auto;
+        overflow: hidden;
+        backdrop-filter: blur(5px) saturate(1.25);
+        transition: max-width 130ms ease, background-color 130ms ease, border-color 130ms ease;
+        isolation: isolate;
+      }
+      .ugt-image-translation-actions:hover,
+      .ugt-image-translation-actions:focus-within,
+      .ugt-image-translation-actions[data-expanded="true"] {
+        max-width: 86px;
+        background: rgba(15, 23, 42, 0.95);
+        border-color: rgba(255, 255, 255, 0.82);
+      }
+      .ugt-image-translation-action-button {
+        all: initial;
+        box-sizing: border-box;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex: 0 0 20px;
+        color: #ffffff !important;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        pointer-events: auto;
+        opacity: 0;
+        transform: scale(0.85);
+        transition: background-color 120ms ease, border-color 120ms ease, opacity 110ms ease, transform 120ms ease;
+      }
+      .ugt-image-translation-actions:hover .ugt-image-translation-action-button,
+      .ugt-image-translation-actions:focus-within .ugt-image-translation-action-button,
+      .ugt-image-translation-actions[data-expanded="true"] .ugt-image-translation-action-button,
+      .ugt-image-translation-action-trigger {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .ugt-image-translation-action-button:hover {
+        background: rgba(37, 99, 235, 0.96);
+        border-color: rgba(255, 255, 255, 0.78);
+      }
+      .ugt-image-translation-action-button:active {
+        transform: scale(0.96);
+      }
+      .ugt-image-translation-action-trigger {
+        background: rgba(37, 99, 235, 0.96);
+        border-color: rgba(255, 255, 255, 0.70);
+        flex: 0 0 auto;
+      }
+      .ugt-image-translation-action-button svg {
+        width: 13px;
+        height: 13px;
+        display: block;
+        color: #ffffff !important;
+        stroke: #ffffff !important;
+        fill: none !important;
+      }
+      .ugt-image-translation-action-button svg path,
+      .ugt-image-translation-action-button svg circle {
+        stroke: #ffffff !important;
+      }
+      .ugt-image-translation-action-button[data-state="original"] {
+        background: rgba(217, 119, 6, 0.96);
+        border-color: rgba(255, 255, 255, 0.78);
       }
       @keyframes ugtImageTranslationSpin {
         to { transform: rotate(360deg); }
@@ -2502,6 +2596,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     target.image.style.opacity = target.originalStyle.opacity;
 
     if (!keepTarget) {
+      removeImageTranslationActions(target);
       imageTranslationTargets.delete(requestId);
     }
   }
@@ -2826,7 +2921,53 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return paintLayers.length;
   }
 
-  function applyTranslatedImageToElement(image, imageDataUrl) {
+  function applyOriginalImageToPaintLayers(image, target) {
+    const sourceCandidates = getImageSourceCandidates(image);
+    const paintLayers = findImageTranslationPaintLayers(image, sourceCandidates);
+
+    paintLayers.forEach((layer) => {
+      if (layer.dataset.ugtOriginalBackgroundImage) {
+        layer.style.backgroundImage = layer.dataset.ugtOriginalBackgroundImage;
+      }
+    });
+
+    return paintLayers.length;
+  }
+
+  function setNullableImageAttribute(image, name, value) {
+    if (value === null || typeof value === 'undefined') {
+      image.removeAttribute(name);
+    } else {
+      image.setAttribute(name, value);
+    }
+  }
+
+  function applyOriginalImageToElement(image, target) {
+    if (!image?.isConnected || !target?.originalImageState) return false;
+
+    const rect = image.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return false;
+
+    const original = target.originalImageState;
+    setNullableImageAttribute(image, 'srcset', original.srcset);
+    setNullableImageAttribute(image, 'sizes', original.sizes);
+    setNullableImageAttribute(image, 'src', original.srcAttr || original.currentSrc || original.src || target.sourceUrl || '');
+
+    if (original.currentSrc || original.src || target.sourceUrl) {
+      image.src = original.currentSrc || original.src || target.sourceUrl;
+    }
+
+    const originalPaintLayerCount = applyOriginalImageToPaintLayers(image, target);
+    const imageStyle = getComputedStyle(image);
+    const imagePaintsVisibly = imageStyle.opacity !== '0' && imageStyle.visibility !== 'hidden' && imageStyle.display !== 'none';
+
+    target.showingTranslatedImage = false;
+    updateImageTranslationActionsState(target);
+
+    return imagePaintsVisibly || originalPaintLayerCount > 0;
+  }
+
+  function applyTranslatedImageToElement(image, imageDataUrl, target = null) {
     if (!image?.isConnected) return false;
 
     const rect = image.getBoundingClientRect();
@@ -2848,15 +2989,20 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     const imageStyle = getComputedStyle(image);
     const imagePaintsVisibly = imageStyle.opacity !== '0' && imageStyle.visibility !== 'hidden' && imageStyle.display !== 'none';
 
+    if (target) {
+      target.showingTranslatedImage = true;
+      updateImageTranslationActionsState(target);
+    }
+
     return imagePaintsVisibly || translatedPaintLayerCount > 0;
   }
 
   function applyTranslatedImageToCurrentTarget(target, imageDataUrl) {
     target.image = resolveCurrentImageTranslationElement(target);
-    return applyTranslatedImageToElement(target.image, imageDataUrl);
+    return applyTranslatedImageToElement(target.image, imageDataUrl, target);
   }
 
-  function keepTranslatedImageApplied(target, imageDataUrl) {
+  function keepImageTranslationStateApplied(target) {
     const expiresAt = Date.now() + 15000;
 
     const tick = () => {
@@ -2867,9 +3013,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
 
       const currentImage = resolveCurrentImageTranslationElement(target);
-      if (currentImage && !isImageShowingTranslatedData(currentImage)) {
-        target.image = currentImage;
-        applyTranslatedImageToElement(currentImage, imageDataUrl);
+      if (!currentImage) return;
+
+      target.image = currentImage;
+      if (target.showingTranslatedImage && !isImageShowingTranslatedData(currentImage)) {
+        applyTranslatedImageToElement(currentImage, target.translatedImageDataUrl, target);
+      } else if (!target.showingTranslatedImage && isImageShowingTranslatedData(currentImage)) {
+        applyOriginalImageToElement(currentImage, target);
       }
     };
 
@@ -2879,13 +3029,183 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     target.reapplyTimer = setInterval(tick, 500);
   }
 
-  function completeImageTranslation(requestId, imageDataUrl, elapsedMs) {
+  function getImageTranslationActionIcon(name) {
+    if (name === 'menu') {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg>';
+    }
+
+    if (name === 'open') {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M16 16l4 4"></path><path d="M10.5 7.5v6"></path><path d="M7.5 10.5h6"></path></svg>';
+    }
+
+    return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a3 3 0 0 1 3-3h15"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a3 3 0 0 1-3 3H3"></path></svg>';
+  }
+
+  function createImageTranslationActionButton(iconName, title) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ugt-image-translation-action-button';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.innerHTML = getImageTranslationActionIcon(iconName);
+    return button;
+  }
+
+  function updateImageTranslationActionsPosition(target) {
+    if (!target?.actionsOverlay) return;
+
+    const image = resolveCurrentImageTranslationElement(target);
+    if (!image) {
+      target.actionsOverlay.style.display = 'none';
+      return;
+    }
+
+    target.image = image;
+    const { clipped } = getClippedImageRect(image);
+    if (clipped.width < 8 || clipped.height < 8) {
+      target.actionsOverlay.style.display = 'none';
+      return;
+    }
+
+    const overlayHeight = target.actionsOverlay.offsetHeight || 26;
+    const right = Math.max(8, window.innerWidth - clipped.right + 8);
+    const top = Math.min(
+      Math.max(8, clipped.top + 8),
+      Math.max(8, window.innerHeight - overlayHeight - 8)
+    );
+
+    target.actionsOverlay.style.display = '';
+    target.actionsOverlay.style.left = 'auto';
+    target.actionsOverlay.style.right = `${right}px`;
+    target.actionsOverlay.style.top = `${top}px`;
+  }
+
+  function updateImageTranslationActionsState(target) {
+    const toggleButton = target?.actionsOverlay?.querySelector('[data-ugt-image-action="toggle"]');
+    if (!toggleButton) return;
+
+    const title = target.showingTranslatedImage ? 'Show original image' : 'Show translated image';
+    toggleButton.title = title;
+    toggleButton.setAttribute('aria-label', title);
+    toggleButton.dataset.state = target.showingTranslatedImage ? 'translated' : 'original';
+  }
+
+  function removeImageTranslationActions(target) {
+    if (!target) return;
+
+    if (target.actionsTimer) {
+      clearInterval(target.actionsTimer);
+      target.actionsTimer = null;
+    }
+
+    if (target.actionsOverlay) {
+      target.actionsOverlay.remove();
+      target.actionsOverlay = null;
+    }
+  }
+
+  async function openImageTranslationNativeImage(target) {
+    if (!target?.translatedImageDataUrl) {
+      showCustomError('Translated image data is unavailable.', 'IMAGE_TRANSLATION');
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage({
+        type: 'UGT_OPEN_IMAGE_TRANSLATION_IMAGE',
+        imageDataUrl: target.translatedImageDataUrl
+      }, (previewResponse) => {
+        if (previewResponse?.ok) return;
+
+        const opened = window.open(target.translatedImageDataUrl, '_blank', 'noopener');
+        if (!opened) {
+          showCustomError(
+            previewResponse?.error || chrome.runtime.lastError?.message || 'Could not open translated image preview.',
+            'IMAGE_TRANSLATION'
+          );
+        }
+      });
+    } catch (error) {
+      showCustomError(error.message || 'Could not open translated image preview.', 'IMAGE_TRANSLATION');
+    }
+  }
+
+  function toggleImageTranslationState(target) {
+    if (!target?.translatedImageDataUrl) return;
+
+    const applied = target.showingTranslatedImage
+      ? applyOriginalImageToElement(resolveCurrentImageTranslationElement(target), target)
+      : applyTranslatedImageToElement(resolveCurrentImageTranslationElement(target), target.translatedImageDataUrl, target);
+
+    if (!applied) {
+      showCustomError('Could not switch the image display.', 'IMAGE_TRANSLATION');
+      return;
+    }
+
+    keepImageTranslationStateApplied(target);
+    updateImageTranslationActionsPosition(target);
+  }
+
+  function showImageTranslationActions(requestId) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target?.translatedImageDataUrl) return;
+
+    ensureImageTranslationStyles();
+
+    if (!target.actionsOverlay) {
+      const actions = document.createElement('div');
+      actions.className = 'ugt-image-translation-actions';
+      actions.dataset.expanded = 'false';
+
+      const triggerButton = createImageTranslationActionButton('menu', 'Image translation actions');
+      triggerButton.classList.add('ugt-image-translation-action-trigger');
+      triggerButton.dataset.ugtImageAction = 'menu';
+      triggerButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        actions.dataset.expanded = actions.dataset.expanded === 'true' ? 'false' : 'true';
+        updateImageTranslationActionsPosition(target);
+      });
+
+      const openButton = createImageTranslationActionButton('open', 'Open translated image');
+      openButton.dataset.ugtImageAction = 'open';
+      openButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        actions.dataset.expanded = 'false';
+        openImageTranslationNativeImage(target);
+      });
+
+      const toggleButton = createImageTranslationActionButton('toggle', 'Show original image');
+      toggleButton.dataset.ugtImageAction = 'toggle';
+      toggleButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        actions.dataset.expanded = 'false';
+        toggleImageTranslationState(target);
+      });
+
+      actions.append(triggerButton, openButton, toggleButton);
+      document.documentElement.appendChild(actions);
+      target.actionsOverlay = actions;
+      target.actionsTimer = setInterval(() => updateImageTranslationActionsPosition(target), 500);
+    }
+
+    updateImageTranslationActionsState(target);
+    updateImageTranslationActionsPosition(target);
+  }
+
+  async function completeImageTranslation(requestId, imageDataUrl, elapsedMs) {
     const target = imageTranslationTargets.get(requestId);
     if (!target) return { ok: false, error: 'Image translation target was lost.' };
 
     target.translatedImageDataUrl = imageDataUrl;
     const applied = applyTranslatedImageToCurrentTarget(target, imageDataUrl);
-    keepTranslatedImageApplied(target, imageDataUrl);
+    if (!applied) {
+      return { ok: false, error: 'Could not find a visible image element to replace.' };
+    }
+
+    keepImageTranslationStateApplied(target);
 
     if (target.overlay) {
       target.overlay.classList.add('ugt-image-translation-done');
@@ -2894,14 +3214,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         const seconds = elapsedMs ? Math.round(elapsedMs / 1000) : Math.round((Date.now() - target.startedAt) / 1000);
         card.innerHTML = `<div class="ugt-image-translation-title">Image translated</div><div class="ugt-image-translation-subtext">${seconds}s</div>`;
       }
-      setTimeout(() => hideImageTranslationOverlay(requestId), 650);
+      setTimeout(() => {
+        hideImageTranslationOverlay(requestId, true);
+        showImageTranslationActions(requestId);
+      }, 650);
     } else {
-      hideImageTranslationOverlay(requestId);
+      hideImageTranslationOverlay(requestId, true);
+      showImageTranslationActions(requestId);
     }
 
-    return applied
-      ? { ok: true }
-      : { ok: false, error: 'Could not find a visible image element to replace.' };
+    return { ok: true };
   }
 
   function failImageTranslation(requestId, error) {
@@ -2984,7 +3306,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
       return true;
     } else if (msg.type === "UGT_IMAGE_TRANSLATION_COMPLETE") {
-      sendResponse(completeImageTranslation(msg.requestId, msg.imageDataUrl, msg.elapsedMs));
+      completeImageTranslation(msg.requestId, msg.imageDataUrl, msg.elapsedMs)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
       return true;
     } else if (msg.type === "UGT_IMAGE_TRANSLATION_ERROR") {
       failImageTranslation(msg.requestId, msg.error);
