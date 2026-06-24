@@ -10,6 +10,10 @@
 
 A Chrome extension that translates or speaks highlighted text using your own LLM API keys (OpenAI, Anthropic, Google, Elevenlabs).
 
+## AI Agent Instructions
+
+If you are an AI agent working on this repo, read [AGENTS.md](AGENTS.md) first. It contains the high-level project map, extension architecture notes, image translation implementation details, and maintenance rules for keeping agent-facing context current.
+
 # [Install from Chrome Web Store](https://chromewebstore.google.com/detail/ugtbrowser/ccpaaggcacbmdbjhclgggndopoekjfkc)
 
 ### Manual Installation

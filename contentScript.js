@@ -33,6 +33,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   // TTS-specific variables
   let ttsOverlayDiv = null;
   let ttsAudioElement = null;
+
+  // Image translation variables
+  let lastContextImage = null;
+  const imageTranslationTargets = new Map();
   
   // Lesson progress overlay
   let lessonOverlayDiv = null;
@@ -2180,6 +2184,758 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return false;
   }
 
+  function getContextImageElement(eventTarget) {
+    if (!eventTarget || eventTarget.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    return eventTarget.closest?.('img') || null;
+  }
+
+  function imageSourceMatches(image, srcUrl) {
+    if (!image || !srcUrl) return false;
+    return image.currentSrc === srcUrl || image.src === srcUrl || image.getAttribute('src') === srcUrl;
+  }
+
+  function getClippedImageRect(image) {
+    const rect = image.getBoundingClientRect();
+    const clipped = {
+      left: Math.max(0, rect.left),
+      top: Math.max(0, rect.top),
+      right: Math.min(window.innerWidth, rect.right),
+      bottom: Math.min(window.innerHeight, rect.bottom)
+    };
+    clipped.width = clipped.right - clipped.left;
+    clipped.height = clipped.bottom - clipped.top;
+    return { rect, clipped };
+  }
+
+  function getImageTranslationTarget(srcUrl, requestId) {
+    const now = Date.now();
+    let image = null;
+
+    if (lastContextImage && now - lastContextImage.time < 15000) {
+      if (!srcUrl || imageSourceMatches(lastContextImage.image, srcUrl)) {
+        image = lastContextImage.image;
+      }
+    }
+
+    if (!image && srcUrl) {
+      image = Array.from(document.images).find((candidate) => imageSourceMatches(candidate, srcUrl)) || null;
+    }
+
+    if (!image) {
+      return { ok: false, error: 'Could not find the clicked image on the page.' };
+    }
+
+    const { rect, clipped } = getClippedImageRect(image);
+
+    if (clipped.width < 8 || clipped.height < 8) {
+      return { ok: false, error: 'The clicked image is not visible enough to capture.' };
+    }
+
+    imageTranslationTargets.set(requestId, {
+      image,
+      rect: clipped,
+      originalRect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      },
+      originalStyle: {
+        width: image.style.width,
+        height: image.style.height,
+        objectFit: image.style.objectFit,
+        filter: image.style.filter,
+        opacity: image.style.opacity
+      },
+      sourceUrl: image.currentSrc || image.src || srcUrl || '',
+      progressTitle: 'Preparing image',
+      progressDetail: '',
+      targetLanguage: '',
+      translatedImageDataUrl: '',
+      overlay: null,
+      timer: null,
+      startedAt: 0
+    });
+
+    return {
+      ok: true,
+      isTopFrame: window.self === window.top,
+      sourceUrl: image.currentSrc || image.src || srcUrl || '',
+      naturalWidth: image.naturalWidth || 0,
+      naturalHeight: image.naturalHeight || 0,
+      rect: clipped,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight
+      }
+    };
+  }
+
+  function ensureImageTranslationStyles() {
+    if (document.getElementById('ugt-image-translation-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'ugt-image-translation-styles';
+    style.textContent = `
+      .ugt-image-translation-overlay {
+        position: fixed;
+        box-sizing: border-box;
+        z-index: 2147483647;
+        pointer-events: none;
+        overflow: hidden;
+        border-radius: 8px;
+        border: 2px solid rgba(99, 102, 241, 0.9);
+        background:
+          linear-gradient(120deg, rgba(255,255,255,0.14), rgba(255,255,255,0.5), rgba(255,255,255,0.14)),
+          rgba(15, 23, 42, 0.40);
+        background-size: 220% 100%;
+        box-shadow: 0 12px 38px rgba(15, 23, 42, 0.32), inset 0 0 0 1px rgba(255,255,255,0.35);
+        backdrop-filter: blur(2px) saturate(1.2);
+        animation: ugtImageTranslationSweep 1.35s linear infinite;
+      }
+      .ugt-image-translation-card {
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        min-width: min(240px, calc(100% - 24px)) !important;
+        max-width: calc(100% - 24px) !important;
+        padding: 12px 14px !important;
+        border-radius: 8px !important;
+        background: rgba(15, 23, 42, 0.94) !important;
+        color: #ffffff !important;
+        font: 600 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        text-align: center !important;
+        letter-spacing: 0 !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55) !important;
+        mix-blend-mode: normal !important;
+        isolation: isolate !important;
+      }
+      .ugt-image-translation-card *,
+      .ugt-image-translation-title {
+        color: #ffffff !important;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        letter-spacing: 0 !important;
+      }
+      .ugt-image-translation-spinner {
+        width: 28px;
+        height: 28px;
+        margin: 0 auto 8px;
+        border-radius: 50%;
+        border: 3px solid rgba(255,255,255,0.28);
+        border-top-color: #ffffff;
+        animation: ugtImageTranslationSpin 0.8s linear infinite;
+      }
+      .ugt-image-translation-subtext {
+        margin-top: 4px !important;
+        font-weight: 600 !important;
+        font-size: 11px !important;
+        color: rgba(255,255,255,0.84) !important;
+        word-break: break-word !important;
+      }
+      .ugt-image-translation-done {
+        border-color: rgba(16, 185, 129, 0.95);
+        animation: none;
+      }
+      .ugt-image-translation-error {
+        border-color: rgba(239, 68, 68, 0.95);
+        animation: none;
+      }
+      @keyframes ugtImageTranslationSpin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes ugtImageTranslationSweep {
+        from { background-position: 220% 0; }
+        to { background-position: -220% 0; }
+      }
+    `;
+    document.documentElement.appendChild(style);
+  }
+
+  function escapeImageTranslationText(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatImageTranslationBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return '';
+    if (bytes < 1024) return `${Math.round(bytes)} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function estimateImageTranslationDataUrlBytes(dataUrl) {
+    const value = String(dataUrl || '');
+    const comma = value.indexOf(',');
+    if (comma === -1) return value.length;
+    const metadata = value.slice(0, comma);
+    const payload = value.slice(comma + 1);
+    return metadata.includes(';base64') ? Math.floor(payload.length * 3 / 4) : payload.length;
+  }
+
+  function getImageTranslationProgressDetail(target) {
+    const seconds = target.startedAt ? Math.floor((Date.now() - target.startedAt) / 1000) : 0;
+    const detail = target.progressDetail || `to ${target.targetLanguage || 'English'}`;
+    return `${detail} · ${seconds}s`;
+  }
+
+  function updateImageTranslationOverlayPosition(target) {
+    if (!target?.overlay || !target.image) return;
+
+    const { clipped } = getClippedImageRect(target.image);
+    if (clipped.width < 1 || clipped.height < 1) {
+      target.overlay.style.display = 'none';
+      return;
+    }
+
+    target.rect = clipped;
+    target.overlay.style.display = '';
+    target.overlay.style.left = `${clipped.left}px`;
+    target.overlay.style.top = `${clipped.top}px`;
+    target.overlay.style.width = `${clipped.width}px`;
+    target.overlay.style.height = `${clipped.height}px`;
+  }
+
+  function renderImageTranslationProgress(target) {
+    if (!target?.overlay) return;
+
+    updateImageTranslationOverlayPosition(target);
+
+    const title = target.overlay.querySelector('.ugt-image-translation-title');
+    const subtext = target.overlay.querySelector('.ugt-image-translation-subtext');
+    if (title) {
+      title.textContent = target.progressTitle || 'Translating image';
+    }
+    if (subtext) {
+      subtext.textContent = getImageTranslationProgressDetail(target);
+    }
+  }
+
+  function updateImageTranslationProgress(requestId, progress = {}) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) return { ok: false, error: 'Image translation target was lost.' };
+
+    if (progress.targetLanguage) {
+      target.targetLanguage = progress.targetLanguage;
+    }
+    if (progress.title) {
+      target.progressTitle = progress.title;
+    }
+    if (progress.detail) {
+      target.progressDetail = progress.detail;
+    }
+    if (Number.isFinite(progress.loadedBytes)) {
+      const loaded = formatImageTranslationBytes(progress.loadedBytes);
+      const total = formatImageTranslationBytes(progress.totalBytes);
+      target.progressTitle = progress.title || 'Sending image';
+      target.progressDetail = total ? `${loaded} of ${total} uploaded` : `${loaded} uploaded`;
+    }
+
+    if (!target.overlay) {
+      showImageTranslationOverlay(requestId, target.targetLanguage || progress.targetLanguage || 'English');
+    } else {
+      renderImageTranslationProgress(target);
+    }
+
+    return { ok: true };
+  }
+
+  function showImageTranslationOverlay(requestId, targetLanguage) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) return null;
+
+    ensureImageTranslationStyles();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ugt-image-translation-overlay';
+    target.targetLanguage = targetLanguage || target.targetLanguage || 'English';
+
+    const card = document.createElement('div');
+    card.className = 'ugt-image-translation-card';
+    card.innerHTML = `
+      <div class="ugt-image-translation-spinner"></div>
+      <div class="ugt-image-translation-title">${escapeImageTranslationText(target.progressTitle || 'Translating image')}</div>
+      <div class="ugt-image-translation-subtext"></div>
+    `;
+    overlay.appendChild(card);
+    document.documentElement.appendChild(overlay);
+
+    target.overlay = overlay;
+    target.startedAt = Date.now();
+    const imageStyle = getComputedStyle(target.image);
+    if (imageStyle.opacity !== '0' && imageStyle.visibility !== 'hidden' && imageStyle.display !== 'none') {
+      target.image.style.filter = `${target.image.style.filter || ''} saturate(0.85) blur(0.4px)`.trim();
+      target.image.style.opacity = target.image.style.opacity || '0.82';
+    }
+
+    target.timer = setInterval(() => {
+      renderImageTranslationProgress(target);
+    }, 250);
+
+    renderImageTranslationProgress(target);
+
+    return overlay;
+  }
+
+  function hideImageTranslationOverlay(requestId, keepTarget = false) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) return;
+
+    if (target.timer) {
+      clearInterval(target.timer);
+      target.timer = null;
+    }
+
+    if (target.overlay) {
+      target.overlay.remove();
+      target.overlay = null;
+    }
+
+    target.image.style.filter = target.originalStyle.filter;
+    target.image.style.opacity = target.originalStyle.opacity;
+
+    if (!keepTarget) {
+      imageTranslationTargets.delete(requestId);
+    }
+  }
+
+  function loadImageElement(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Could not load captured tab image.'));
+      image.src = dataUrl;
+    });
+  }
+
+  function blobToImageTranslationDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Could not read image data.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function fetchFullImageForTranslation(target) {
+    const sourceUrl = target.sourceUrl || target.image.currentSrc || target.image.src || '';
+    if (!sourceUrl) {
+      throw new Error('The image source URL is unavailable.');
+    }
+
+    const fullImage = await fetchImageUrlForTranslation(sourceUrl, {
+      fallbackWidth: target.image.naturalWidth || Math.round(target.originalRect.width),
+      fallbackHeight: target.image.naturalHeight || Math.round(target.originalRect.height)
+    });
+
+    return {
+      ...fullImage,
+      captureSource: fullImage.captureSource || 'full_image_fetch'
+    };
+  }
+
+  async function fetchImageUrlForTranslation(sourceUrl, options = {}) {
+    if (!sourceUrl) {
+      throw new Error('The image source URL is unavailable.');
+    }
+
+    if (sourceUrl.startsWith('data:')) {
+      return {
+        imageDataUrl: sourceUrl,
+        width: options.fallbackWidth || 0,
+        height: options.fallbackHeight || 0,
+        byteLength: estimateImageTranslationDataUrlBytes(sourceUrl),
+        captureSource: 'data_url'
+      };
+    }
+
+    let response;
+    try {
+      response = await fetch(sourceUrl, {
+        credentials: 'omit',
+        cache: 'force-cache'
+      });
+    } catch (error) {
+      response = await fetch(sourceUrl, {
+        credentials: 'include',
+        cache: 'force-cache'
+      });
+    }
+
+    if (response && !response.ok) {
+      response = await fetch(sourceUrl, {
+        credentials: 'include',
+        cache: 'force-cache'
+      });
+    }
+
+    if (!response.ok) {
+      throw new Error(`Could not fetch full image (${response.status}).`);
+    }
+
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) {
+      throw new Error('The full image request did not return image data.');
+    }
+
+    const imageDataUrl = await blobToImageTranslationDataUrl(blob);
+    let width = options.fallbackWidth || 0;
+    let height = options.fallbackHeight || 0;
+    try {
+      const loadedImage = await loadImageElement(imageDataUrl);
+      width = loadedImage.naturalWidth || width;
+      height = loadedImage.naturalHeight || height;
+    } catch {
+      // Keep fallback dimensions.
+    }
+
+    return {
+      imageDataUrl,
+      width,
+      height,
+      byteLength: blob.size || estimateImageTranslationDataUrlBytes(imageDataUrl),
+      captureSource: 'full_image_fetch'
+    };
+  }
+
+  async function captureImageForTranslation(requestId, screenshotDataUrl, targetLanguage) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) {
+      return { ok: false, error: 'Image translation target was lost.' };
+    }
+
+    updateImageTranslationProgress(requestId, {
+      targetLanguage,
+      title: 'Preparing image',
+      detail: 'Reading full image'
+    });
+
+    if (!screenshotDataUrl) {
+      try {
+        const fullImage = await fetchFullImageForTranslation(target);
+        updateImageTranslationProgress(requestId, {
+          title: 'Preparing image',
+          detail: `Full image ready (${formatImageTranslationBytes(fullImage.byteLength)})`
+        });
+        return {
+          ok: true,
+          ...fullImage
+        };
+      } catch (error) {
+        target.fullImageFetchError = error.message || String(error);
+        updateImageTranslationProgress(requestId, {
+          title: 'Preparing image',
+          detail: 'Full image blocked; capturing visible area'
+        });
+        return {
+          ok: false,
+          needsScreenshot: true,
+          error: target.fullImageFetchError
+        };
+      }
+    }
+
+    const screenshot = await loadImageElement(screenshotDataUrl);
+    const scaleX = screenshot.naturalWidth / window.innerWidth;
+    const scaleY = screenshot.naturalHeight / window.innerHeight;
+    updateImageTranslationOverlayPosition(target);
+    const sx = Math.max(0, Math.round(target.rect.left * scaleX));
+    const sy = Math.max(0, Math.round(target.rect.top * scaleY));
+    const sw = Math.max(1, Math.round(target.rect.width * scaleX));
+    const sh = Math.max(1, Math.round(target.rect.height * scaleY));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = sw;
+    canvas.height = sh;
+    const context = canvas.getContext('2d');
+    context.drawImage(screenshot, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const imageDataUrl = canvas.toDataURL('image/png');
+    const byteLength = estimateImageTranslationDataUrlBytes(imageDataUrl);
+    updateImageTranslationProgress(requestId, {
+      title: 'Preparing image',
+      detail: `Visible area ready (${formatImageTranslationBytes(byteLength)})`
+    });
+    return {
+      ok: true,
+      imageDataUrl,
+      width: sw,
+      height: sh,
+      byteLength,
+      captureSource: 'visible_screenshot',
+      warning: target.fullImageFetchError ? `Full image unavailable: ${target.fullImageFetchError}` : undefined
+    };
+  }
+
+  function scoreImageTranslationCandidate(image, target) {
+    if (!image || image === target.image) return -1;
+
+    let score = 0;
+    const source = image.currentSrc || image.src || image.getAttribute('src') || '';
+    if (target.sourceUrl && source === target.sourceUrl) score += 100;
+    if (target.sourceUrl && source.includes(target.sourceUrl)) score += 60;
+
+    const rect = image.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return -1;
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const originalCenterX = target.originalRect.left + target.originalRect.width / 2;
+    const originalCenterY = target.originalRect.top + target.originalRect.height / 2;
+    const distance = Math.hypot(centerX - originalCenterX, centerY - originalCenterY);
+    score += Math.max(0, 50 - distance / 10);
+
+    return score;
+  }
+
+  function resolveCurrentImageTranslationElement(target) {
+    if (target.image?.isConnected) {
+      const rect = target.image.getBoundingClientRect();
+      if (rect.width >= 8 && rect.height >= 8) {
+        return target.image;
+      }
+    }
+
+    let bestImage = null;
+    let bestScore = -1;
+    for (const candidate of Array.from(document.images)) {
+      const score = scoreImageTranslationCandidate(candidate, target);
+      if (score > bestScore) {
+        bestScore = score;
+        bestImage = candidate;
+      }
+    }
+
+    return bestScore > 0 ? bestImage : target.image;
+  }
+
+  function isImageShowingTranslatedData(image) {
+    const source = image?.currentSrc || image?.src || '';
+    if (!source.startsWith('data:image/')) return false;
+
+    const paintLayers = findImageTranslationPaintLayers(image);
+    return paintLayers.length === 0 || paintLayers.every((layer) => {
+      const backgroundImage = layer.style.backgroundImage || getComputedStyle(layer).backgroundImage || '';
+      return backgroundImage.includes('data:image/');
+    });
+  }
+
+  function getImageSourceCandidates(image) {
+    const values = [
+      image?.dataset?.ugtOriginalSrc,
+      image?.currentSrc,
+      image?.src,
+      image?.getAttribute?.('src')
+    ].filter(Boolean);
+
+    const candidates = [];
+
+    values.forEach((value) => {
+      const source = String(value);
+      if (source.startsWith('data:image/')) return;
+
+      candidates.push(source);
+
+      try {
+        const parsed = new URL(source, location.href);
+        candidates.push(`${parsed.origin}${parsed.pathname}`);
+        const format = parsed.searchParams.get('format');
+        if (format) {
+          candidates.push(`${parsed.origin}${parsed.pathname}?format=${format}`);
+        }
+      } catch {
+        // Keep the original value only.
+      }
+    });
+
+    return Array.from(new Set(candidates.filter((value) => value && String(value).length > 8)));
+  }
+
+  function cssBackgroundImageContainsSource(backgroundImage, sourceCandidates) {
+    if (!backgroundImage || backgroundImage === 'none') return false;
+
+    const normalizedBackground = String(backgroundImage)
+      .replace(/&amp;/g, '&')
+      .replace(/\\(["'])/g, '$1');
+
+    return sourceCandidates.some((source) => {
+      if (!source) return false;
+      const normalizedSource = String(source).replace(/&amp;/g, '&');
+      return normalizedBackground.includes(normalizedSource);
+    });
+  }
+
+  function getRectOverlapRatio(a, b) {
+    const left = Math.max(a.left, b.left);
+    const right = Math.min(a.right, b.right);
+    const top = Math.max(a.top, b.top);
+    const bottom = Math.min(a.bottom, b.bottom);
+    const overlapWidth = Math.max(0, right - left);
+    const overlapHeight = Math.max(0, bottom - top);
+    const overlapArea = overlapWidth * overlapHeight;
+    const imageArea = Math.max(1, a.width * a.height);
+    return overlapArea / imageArea;
+  }
+
+  function findImageTranslationPaintLayers(image, sourceCandidates = getImageSourceCandidates(image)) {
+    if (!image?.parentElement) return [];
+
+    const imageRect = image.getBoundingClientRect();
+    if (imageRect.width < 8 || imageRect.height < 8) return [];
+
+    const root = image.parentElement;
+    const candidates = [root, ...Array.from(root.querySelectorAll('div, span'))];
+
+    return candidates.filter((candidate) => {
+      if (candidate === image || candidate.nodeType !== Node.ELEMENT_NODE) return false;
+
+      const candidateStyle = getComputedStyle(candidate);
+      const backgroundImage = candidate.style.backgroundImage || candidateStyle.backgroundImage || '';
+      const wasTranslatedLayer = candidate.dataset.ugtTranslatedImageLayer === 'true';
+      const sourceMatched = cssBackgroundImageContainsSource(backgroundImage, sourceCandidates);
+      if (!wasTranslatedLayer && !sourceMatched) return false;
+
+      const candidateRect = candidate.getBoundingClientRect();
+      if (candidateRect.width < 8 || candidateRect.height < 8) return false;
+
+      return getRectOverlapRatio(imageRect, candidateRect) >= 0.7;
+    });
+  }
+
+  function toCssImageUrl(imageDataUrl) {
+    return `url("${String(imageDataUrl).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`;
+  }
+
+  function applyTranslatedImageToPaintLayers(image, imageDataUrl, sourceCandidates) {
+    const paintLayers = findImageTranslationPaintLayers(image, sourceCandidates);
+    const cssImageUrl = toCssImageUrl(imageDataUrl);
+
+    paintLayers.forEach((layer) => {
+      layer.dataset.ugtOriginalBackgroundImage = layer.dataset.ugtOriginalBackgroundImage || layer.style.backgroundImage || getComputedStyle(layer).backgroundImage || '';
+      layer.dataset.ugtTranslatedImageLayer = 'true';
+      layer.style.backgroundImage = cssImageUrl;
+    });
+
+    return paintLayers.length;
+  }
+
+  function applyTranslatedImageToElement(image, imageDataUrl) {
+    if (!image?.isConnected) return false;
+
+    const rect = image.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return false;
+
+    const sourceCandidates = getImageSourceCandidates(image);
+    image.dataset.ugtOriginalSrc = image.dataset.ugtOriginalSrc || image.currentSrc || image.src || '';
+    image.dataset.ugtTranslatedImage = 'true';
+    image.removeAttribute('srcset');
+    image.removeAttribute('sizes');
+    image.style.width = `${rect.width}px`;
+    image.style.height = `${rect.height}px`;
+    if (!image.style.objectFit) {
+      image.style.objectFit = 'contain';
+    }
+    image.src = imageDataUrl;
+
+    const translatedPaintLayerCount = applyTranslatedImageToPaintLayers(image, imageDataUrl, sourceCandidates);
+    const imageStyle = getComputedStyle(image);
+    const imagePaintsVisibly = imageStyle.opacity !== '0' && imageStyle.visibility !== 'hidden' && imageStyle.display !== 'none';
+
+    return imagePaintsVisibly || translatedPaintLayerCount > 0;
+  }
+
+  function applyTranslatedImageToCurrentTarget(target, imageDataUrl) {
+    target.image = resolveCurrentImageTranslationElement(target);
+    return applyTranslatedImageToElement(target.image, imageDataUrl);
+  }
+
+  function keepTranslatedImageApplied(target, imageDataUrl) {
+    const expiresAt = Date.now() + 15000;
+
+    const tick = () => {
+      if (Date.now() > expiresAt) {
+        clearInterval(target.reapplyTimer);
+        target.reapplyTimer = null;
+        return;
+      }
+
+      const currentImage = resolveCurrentImageTranslationElement(target);
+      if (currentImage && !isImageShowingTranslatedData(currentImage)) {
+        target.image = currentImage;
+        applyTranslatedImageToElement(currentImage, imageDataUrl);
+      }
+    };
+
+    if (target.reapplyTimer) {
+      clearInterval(target.reapplyTimer);
+    }
+    target.reapplyTimer = setInterval(tick, 500);
+  }
+
+  function completeImageTranslation(requestId, imageDataUrl, elapsedMs) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) return { ok: false, error: 'Image translation target was lost.' };
+
+    target.translatedImageDataUrl = imageDataUrl;
+    const applied = applyTranslatedImageToCurrentTarget(target, imageDataUrl);
+    keepTranslatedImageApplied(target, imageDataUrl);
+
+    if (target.overlay) {
+      target.overlay.classList.add('ugt-image-translation-done');
+      const card = target.overlay.querySelector('.ugt-image-translation-card');
+      if (card) {
+        const seconds = elapsedMs ? Math.round(elapsedMs / 1000) : Math.round((Date.now() - target.startedAt) / 1000);
+        card.innerHTML = `<div class="ugt-image-translation-title">Image translated</div><div class="ugt-image-translation-subtext">${seconds}s</div>`;
+      }
+      setTimeout(() => hideImageTranslationOverlay(requestId), 650);
+    } else {
+      hideImageTranslationOverlay(requestId);
+    }
+
+    return applied
+      ? { ok: true }
+      : { ok: false, error: 'Could not find a visible image element to replace.' };
+  }
+
+  function failImageTranslation(requestId, error) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target) {
+      showCustomError(error || 'Image translation failed.', 'IMAGE_TRANSLATION');
+      return;
+    }
+
+    console.warn('UGT image translation failed:', error || 'Unknown error');
+
+    if (target.overlay) {
+      target.overlay.classList.add('ugt-image-translation-error');
+      const card = target.overlay.querySelector('.ugt-image-translation-card');
+      if (card) {
+        card.innerHTML = `<div class="ugt-image-translation-title">Image translation failed</div><div class="ugt-image-translation-subtext">${escapeImageTranslationText(error || 'Unknown error')}</div>`;
+      }
+      setTimeout(() => hideImageTranslationOverlay(requestId), 9000);
+    } else {
+      hideImageTranslationOverlay(requestId);
+      showCustomError(error || 'Image translation failed.', 'IMAGE_TRANSLATION');
+    }
+  }
+
+  document.addEventListener('contextmenu', (event) => {
+    const image = getContextImageElement(event.target);
+    if (image) {
+      lastContextImage = {
+        image,
+        time: Date.now()
+      };
+    }
+  }, true);
+
   document.addEventListener("selectionchange", () => {
     const sel = document.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -2208,6 +2964,31 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const selection = window.getSelection();
       const selectionText = selection ? selection.toString().trim() : '';
       sendResponse({ selectionText: selectionText || null });
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_GET_TARGET") {
+      sendResponse(getImageTranslationTarget(msg.srcUrl, msg.requestId));
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_CAPTURE") {
+      captureImageForTranslation(msg.requestId, msg.screenshotDataUrl, msg.targetLanguage)
+        .then(sendResponse)
+        .catch((error) => {
+          sendResponse({ ok: false, error: error.message || String(error) });
+        });
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_PROGRESS") {
+      sendResponse(updateImageTranslationProgress(msg.requestId, msg.progress || {}));
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_FETCH_URL") {
+      fetchImageUrlForTranslation(msg.sourceUrl || window.location.href)
+        .then((result) => sendResponse({ ok: true, ...result, captureSource: 'source_tab_fetch' }))
+        .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_COMPLETE") {
+      sendResponse(completeImageTranslation(msg.requestId, msg.imageDataUrl, msg.elapsedMs));
+      return true;
+    } else if (msg.type === "UGT_IMAGE_TRANSLATION_ERROR") {
+      failImageTranslation(msg.requestId, msg.error);
+      sendResponse({ ok: true });
       return true;
     } else if (msg.type === "UGT_SHOW_OVERLAY" && window.self === window.top) {
       //console.log("[contentScript.js] Top frame received UGT_SHOW_OVERLAY, provider:", msg.provider);
@@ -4441,4 +5222,4 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       window.dispatchEvent(new CustomEvent('UGTStandaloneInit'));
     }, 50);
   }
-} 
+}

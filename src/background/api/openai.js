@@ -3,6 +3,8 @@
 
 import { supportsTemperature, isGPT5Model, isGPT52Pro, getReasoningEffort } from '../../shared/utils.js';
 
+const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
+
 /**
  * Non-streaming OpenAI API call
  */
@@ -36,6 +38,155 @@ export async function fetchFromOpenAI(prompt, model, apiKey) {
   
   const data = await response.json();
   return data.choices[0].message.content;
+}
+
+/**
+ * Direct OpenAI image edit call for in-image visual translation.
+ */
+export async function editImageWithOpenAI({
+  imageBlob,
+  prompt,
+  apiKey,
+  model = "gpt-image-2",
+  quality = "low",
+  size = "auto",
+  outputFormat = "png",
+  signal = null,
+  onUploadProgress = null,
+  onUploadComplete = null
+}) {
+  if (!apiKey) throw new Error("OpenAI API key is required");
+  if (!imageBlob) throw new Error("Image data is required");
+  if (!prompt) throw new Error("Image edit prompt is required");
+
+  const formData = new FormData();
+  formData.append("model", model);
+  formData.append("image", imageBlob, "image.png");
+  formData.append("prompt", prompt);
+  formData.append("quality", quality);
+  formData.append("size", size);
+  formData.append("output_format", outputFormat);
+
+  if ((onUploadProgress || onUploadComplete) && typeof XMLHttpRequest !== 'undefined') {
+    return sendOpenAIImageEditWithXhr({
+      formData,
+      apiKey,
+      outputFormat,
+      signal,
+      onUploadProgress,
+      onUploadComplete
+    });
+  }
+
+  const response = await fetch(OPENAI_IMAGE_EDIT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: formData,
+    signal
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error?.message || `OpenAI image edit error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return parseOpenAIImageEditResponse(data, outputFormat);
+}
+
+function parseOpenAIImageEditResponse(data, outputFormat) {
+  const base64Image = data?.data?.[0]?.b64_json;
+  if (!base64Image) {
+    throw new Error("OpenAI image edit response did not include image data");
+  }
+
+  return {
+    dataUrl: `data:image/${outputFormat};base64,${base64Image}`,
+    base64Image
+  };
+}
+
+function sendOpenAIImageEditWithXhr({
+  formData,
+  apiKey,
+  outputFormat,
+  signal,
+  onUploadProgress,
+  onUploadComplete
+}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+      callback(value);
+    };
+
+    const abortHandler = () => {
+      xhr.abort();
+      settle(reject, new Error('OpenAI image edit request was aborted.'));
+    };
+
+    if (signal?.aborted) {
+      reject(new Error('OpenAI image edit request was aborted.'));
+      return;
+    }
+
+    xhr.open('POST', OPENAI_IMAGE_EDIT_ENDPOINT);
+    xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    xhr.responseType = 'json';
+
+    xhr.upload.onprogress = (event) => {
+      if (onUploadProgress) {
+        onUploadProgress({
+          loaded: event.loaded,
+          total: event.lengthComputable ? event.total : null
+        });
+      }
+    };
+
+    xhr.upload.onload = () => {
+      if (onUploadComplete) {
+        onUploadComplete();
+      }
+    };
+
+    xhr.onerror = () => settle(reject, new Error('Network error while sending OpenAI image edit request.'));
+    xhr.onabort = () => settle(reject, new Error('OpenAI image edit request was aborted.'));
+    xhr.onload = () => {
+      const data = xhr.response || (() => {
+        try {
+          return JSON.parse(xhr.responseText);
+        } catch {
+          return null;
+        }
+      })();
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        settle(reject, new Error(data?.error?.message || `OpenAI image edit error: ${xhr.status}`));
+        return;
+      }
+
+      try {
+        settle(resolve, parseOpenAIImageEditResponse(data, outputFormat));
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
+    xhr.send(formData);
+  });
 }
 
 /**

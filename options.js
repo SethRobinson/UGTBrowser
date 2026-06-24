@@ -945,26 +945,34 @@ function fetchLastLLMData() {
     chrome.runtime.sendMessage({ type: "GET_LAST_LLM_DATA" }, (data) => {
       if (chrome.runtime.lastError) {
         console.warn("Error fetching LLM data:", chrome.runtime.lastError.message);
-        updateLLMDebugUI(null, null); // Clear or indicate error
+        updateLLMDebugUI(null, null, null, null); // Clear or indicate error
         return;
       }
       if (data) {
-        updateLLMDebugUI(data.lastRequest, data.lastResponse);
+        updateLLMDebugUI(data.lastRequest, data.lastResponse, data.lastImageRequest, data.lastImageResponse);
       } else {
-        updateLLMDebugUI(null, null); // No data received
+        updateLLMDebugUI(null, null, null, null); // No data received
       }
     });
   } else {
     console.warn("chrome.runtime.sendMessage not available. LLM Debug data cannot be fetched.");
-    updateLLMDebugUI(null, null); // Indicate unavailability
+    updateLLMDebugUI(null, null, null, null); // Indicate unavailability
   }
 }
 
-function updateLLMDebugUI(lastRequest, lastResponse) {
+function formatDebugObject(value) {
+  return Object.entries(value || {})
+    .map(([key, item]) => `${key}: ${item}`)
+    .join(' | ');
+}
+
+function updateLLMDebugUI(lastRequest, lastResponse, lastImageRequest, lastImageResponse) {
   const requestInfoElement = document.getElementById('lastRequestInfo');
   const requestPromptElement = document.getElementById('lastRequestPrompt');
   const responseInfoElement = document.getElementById('lastResponseInfo');
   const responseContentElement = document.getElementById('lastResponseContent');
+  const imageRequestInfoElement = document.getElementById('lastImageRequestInfo');
+  const imageResponseInfoElement = document.getElementById('lastImageResponseInfo');
 
   if (requestInfoElement && requestPromptElement) {
     if (lastRequest) {
@@ -991,6 +999,18 @@ function updateLLMDebugUI(lastRequest, lastResponse) {
       responseInfoElement.textContent = "No response data available";
       responseContentElement.value = "";
     }
+  }
+
+  if (imageRequestInfoElement) {
+    imageRequestInfoElement.textContent = lastImageRequest
+      ? formatDebugObject(lastImageRequest)
+      : "No image translation request data available";
+  }
+
+  if (imageResponseInfoElement) {
+    imageResponseInfoElement.textContent = lastImageResponse
+      ? formatDebugObject(lastImageResponse)
+      : "No image translation result data available";
   }
 }
 
@@ -1224,4 +1244,4 @@ function showGoogleTTSTestStatus(message, type) {
   } else if (type === 'loading') {
     googleTtsTestStatus.classList.add('tts-test-loading');
   }
-} 
+}

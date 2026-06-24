@@ -1,10 +1,10 @@
 // src/background/offscreen-manager.js
-// Offscreen document management for audio playback
+// Offscreen document management for extension-owned work that should not depend on service worker lifetime
 
 let creatingOffscreen = null;
 
 /**
- * Ensure the offscreen document exists for audio playback
+ * Ensure the offscreen document exists for Blob-backed audio and image FormData work.
  */
 export async function ensureOffscreenDocument() {
   const offscreenUrl = chrome.runtime.getURL('offscreen.html');
@@ -27,12 +27,34 @@ export async function ensureOffscreenDocument() {
   
   creatingOffscreen = chrome.offscreen.createDocument({
     url: offscreenUrl,
-    reasons: ['AUDIO_PLAYBACK'],
-    justification: 'Playing TTS audio when content script is unavailable'
+    reasons: ['BLOBS'],
+    justification: 'Creating Blob-backed TTS audio and image translation requests from an extension-owned document'
   });
   
   await creatingOffscreen;
   creatingOffscreen = null;
+}
+
+/**
+ * Start an OpenAI image edit in the offscreen document.
+ */
+export async function startImageEditViaOffscreen(payload) {
+  await ensureOffscreenDocument();
+
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_OPENAI_IMAGE_EDIT_START',
+      payload
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (response?.success) {
+        resolve(response);
+      } else {
+        reject(new Error(response?.error || 'Could not start offscreen image translation'));
+      }
+    });
+  });
 }
 
 /**

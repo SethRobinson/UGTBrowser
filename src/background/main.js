@@ -4,6 +4,7 @@
 import {
   CONTEXT_MENU_TRANSLATE,
   CONTEXT_MENU_TRANSLATE_SIMPLE,
+  CONTEXT_MENU_TRANSLATE_IMAGE,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
@@ -29,10 +30,11 @@ import {
 
 import {
   initializeContextMenus,
-  setupSettingsChangeListener
+  setupSettingsChangeListener,
+  setupContextMenuVisibilityListener
 } from './context-menus.js';
 
-import { ensureOffscreenDocument, playAudioViaOffscreen } from './offscreen-manager.js';
+import { ensureOffscreenDocument, playAudioViaOffscreen, startImageEditViaOffscreen } from './offscreen-manager.js';
 import { buildChatPrompt, buildLessonChatPrompt, buildAskPrompt } from './prompt-builders.js';
 
 // ========================================
@@ -48,6 +50,8 @@ const activeChatSessions = new Map();
 // Store the last request and response for debugging
 let lastLLMRequest = null;
 let lastLLMResponse = null;
+let lastImageTranslationRequest = null;
+let lastImageTranslationResponse = null;
 
 // ========================================
 // HEARTBEAT AND CONNECTION MONITORING
@@ -248,6 +252,244 @@ function getApiKeyForProvider(provider, data) {
   return null;
 }
 
+function getImageTranslationTargetLanguage(data) {
+  const settings = data.settings || {};
+  const languageMode = data.languageMode || settings.languageMode || 'standard';
+
+  if (languageMode === 'custom') {
+    return (data.customLanguage || settings.customLanguage || settings.targetLang || 'English').trim() || 'English';
+  }
+
+  return data.targetLanguage || settings.targetLang || 'English';
+}
+
+function buildImageTranslationPrompt(targetLanguage) {
+  return [
+    `Translate all visible source-language text in this image to ${targetLanguage} directly in the image.`,
+    'Preserve the original layout, borders, spacing, alignment, typography hierarchy, photos, graphics, and overall visual appearance.',
+    'Favor literal translation over paraphrase. Preserve reading order, dates, names, brands, quoted titles, and unusual phrasing as much as possible.',
+    'Resize translated text as needed to fit the original text regions.',
+    'Do not add subtitles, annotations, callouts, bounding boxes, JSON, coordinates, or side-by-side translations.',
+    'Do not leave untranslated source-language text visible unless it is a proper noun, brand name, or intentionally untranslated title.'
+  ].join(' ');
+}
+
+function chooseImageEditSize(width, height) {
+  const minPixels = 655360;
+  const maxPixels = 8294400;
+  const multiple = 16;
+
+  if (!width || !height) {
+    return 'auto';
+  }
+
+  let aspect = width / height;
+  aspect = Math.min(3, Math.max(1 / 3, aspect));
+
+  let targetWidth = Math.sqrt(minPixels * aspect);
+  let targetHeight = targetWidth / aspect;
+
+  const roundUpToMultiple = (value) => Math.max(multiple, Math.ceil(value / multiple) * multiple);
+  let outputWidth = roundUpToMultiple(targetWidth);
+  let outputHeight = roundUpToMultiple(targetHeight);
+
+  while (outputWidth * outputHeight < minPixels) {
+    if (outputWidth / outputHeight < aspect) {
+      outputWidth += multiple;
+    } else {
+      outputHeight += multiple;
+    }
+  }
+
+  while (outputWidth * outputHeight > maxPixels) {
+    outputWidth = Math.max(multiple, outputWidth - multiple);
+    outputHeight = Math.max(multiple, outputHeight - multiple);
+  }
+
+  return `${outputWidth}x${outputHeight}`;
+}
+
+function sendMessageToFrame(tabId, frameId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(response);
+      }
+    });
+  });
+}
+
+function captureVisibleTab(windowId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!dataUrl) {
+        reject(new Error('Could not capture the visible tab'));
+      } else {
+        resolve(dataUrl);
+      }
+    });
+  });
+}
+
+function estimateDataUrlByteLength(dataUrl) {
+  const value = String(dataUrl || '');
+  const comma = value.indexOf(',');
+  if (comma === -1) return value.length;
+  const metadata = value.slice(0, comma);
+  const payload = value.slice(comma + 1);
+  return metadata.includes(';base64') ? Math.floor(payload.length * 3 / 4) : payload.length;
+}
+
+function sendImageTranslationProgress(tabId, frameId, requestId, progress) {
+  return sendMessageToFrame(tabId, frameId, {
+    type: "UGT_IMAGE_TRANSLATION_PROGRESS",
+    requestId,
+    progress
+  }).catch(() => null);
+}
+
+function createInactiveTab(url) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(tab);
+      }
+    });
+  });
+}
+
+function removeTab(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.remove(tabId, () => resolve());
+  });
+}
+
+async function waitForContentScript(tabId, timeoutMs = 8000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await sendMessageToFrame(tabId, 0, { type: "PING" });
+      if (response?.status === "ok") return;
+    } catch {
+      // Retry until the tab finishes loading and the content script is ready.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error('The image source tab did not become ready.');
+}
+
+async function fetchImageFromSourceTab(sourceUrl) {
+  if (!/^https?:\/\//i.test(sourceUrl || '')) {
+    throw new Error('Image source tab fallback only supports http and https images.');
+  }
+
+  let sourceTab = null;
+  try {
+    sourceTab = await createInactiveTab(sourceUrl);
+    await waitForContentScript(sourceTab.id);
+    const result = await sendMessageToFrame(sourceTab.id, 0, {
+      type: "UGT_IMAGE_TRANSLATION_FETCH_URL",
+      sourceUrl
+    });
+
+    if (!result?.ok || !result.imageDataUrl) {
+      throw new Error(result?.error || 'Could not fetch the full image from the source tab.');
+    }
+
+    return result;
+  } finally {
+    if (sourceTab?.id) {
+      await removeTab(sourceTab.id);
+    }
+  }
+}
+
+function setImageTranslationDebugRequest(details) {
+  lastImageTranslationRequest = {
+    timestamp: new Date().toISOString(),
+    ...details
+  };
+}
+
+function setImageTranslationDebugResponse(details) {
+  lastImageTranslationResponse = {
+    timestamp: new Date().toISOString(),
+    ...details
+  };
+}
+
+async function handleOffscreenImageEditComplete(message) {
+  const {
+    requestId,
+    tabId,
+    frameId = 0,
+    imageDataUrl,
+    elapsedMs,
+    requestedSize
+  } = message;
+
+  setImageTranslationDebugResponse({
+    requestId,
+    status: 'complete',
+    elapsedMs,
+    requestedSize
+  });
+
+  const response = await sendMessageToFrame(tabId, frameId, {
+    type: "UGT_IMAGE_TRANSLATION_COMPLETE",
+    requestId,
+    imageDataUrl,
+    elapsedMs,
+    requestedSize
+  });
+
+  if (!response?.ok) {
+    const error = response?.error || 'Content script did not apply the translated image.';
+    setImageTranslationDebugResponse({
+      requestId,
+      status: 'error',
+      elapsedMs,
+      requestedSize,
+      error
+    });
+    await sendMessageToFrame(tabId, frameId, {
+      type: "UGT_IMAGE_TRANSLATION_ERROR",
+      requestId,
+      error
+    }).catch(() => null);
+    throw new Error(error);
+  }
+}
+
+async function handleOffscreenImageEditError(message) {
+  const {
+    requestId,
+    tabId,
+    frameId = 0,
+    error,
+    elapsedMs
+  } = message;
+
+  setImageTranslationDebugResponse({
+    requestId,
+    status: 'error',
+    elapsedMs,
+    error: error || 'Image translation failed'
+  });
+
+  await sendMessageToFrame(tabId, frameId, {
+    type: "UGT_IMAGE_TRANSLATION_ERROR",
+    requestId,
+    error: error || 'Image translation failed'
+  });
+}
+
 // ========================================
 // TRANSLATION FUNCTIONS
 // ========================================
@@ -372,7 +614,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === "GET_LAST_LLM_DATA") {
-    sendResponse({ lastRequest: lastLLMRequest, lastResponse: lastLLMResponse });
+    sendResponse({
+      lastRequest: lastLLMRequest,
+      lastResponse: lastLLMResponse,
+      lastImageRequest: lastImageTranslationRequest,
+      lastImageResponse: lastImageTranslationResponse
+    });
+    return true;
+  }
+
+  if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_COMPLETE") {
+    handleOffscreenImageEditComplete(message)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_PROGRESS") {
+    sendImageTranslationProgress(message.tabId, message.frameId ?? 0, message.requestId, message.progress || {})
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
+    return true;
+  }
+
+  if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_ERROR") {
+    handleOffscreenImageEditError(message)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
     return true;
   }
   
@@ -828,6 +1096,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await handleTranslateMenuClick(info, tab, true);
     return;
   }
+
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE_IMAGE) {
+    await handleImageTranslateMenuClick(info, tab);
+    return;
+  }
   
   if (info.menuItemId === CONTEXT_MENU_SPEAK) {
     await handleSpeakMenuClick(info, tab);
@@ -872,6 +1145,170 @@ async function handleTranslateMenuClick(info, tab, simpleMode = false) {
     });
   } catch (error) {
     console.error("Synchronous error in translate menu click:", error.message);
+  }
+}
+
+async function handleImageTranslateMenuClick(info, tab) {
+  const frameId = info.frameId ?? 0;
+  const requestId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+  if (isRestrictedUrl(tab.url)) {
+    showRestrictedPageWarning(tab.url, 'translate image');
+    return;
+  }
+
+  try {
+    const data = await chrome.storage.local.get([
+      'settings',
+      'languageMode',
+      'targetLanguage',
+      'customLanguage',
+      'openaiApiKey'
+    ]);
+
+    if (!data.openaiApiKey) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "UGT_SHOW_ERROR",
+        message: "OpenAI API key is not configured. Please add your API key in UGTBrowser Settings.",
+        errorContext: "API_KEY_ISSUE"
+      }, { frameId });
+      return;
+    }
+
+    const targetLanguage = getImageTranslationTargetLanguage(data);
+    const target = await sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_IMAGE_TRANSLATION_GET_TARGET",
+      requestId,
+      srcUrl: info.srcUrl || ''
+    });
+
+    if (!target?.ok) {
+      throw new Error(target?.error || 'Could not identify the clicked image');
+    }
+
+    if (!target.isTopFrame) {
+      throw new Error('Image translation currently supports images in the main page frame.');
+    }
+
+    await sendImageTranslationProgress(tab.id, frameId, requestId, {
+      targetLanguage,
+      title: 'Preparing image',
+      detail: 'Reading full image'
+    });
+
+    let capture = await sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_IMAGE_TRANSLATION_CAPTURE",
+      requestId,
+      targetLanguage
+    });
+
+    if (capture?.needsScreenshot) {
+      await sendImageTranslationProgress(tab.id, frameId, requestId, {
+        targetLanguage,
+        title: 'Preparing image',
+        detail: 'Opening image source'
+      });
+
+      try {
+        capture = await fetchImageFromSourceTab(target.sourceUrl);
+      } catch (sourceTabError) {
+        await sendImageTranslationProgress(tab.id, frameId, requestId, {
+          targetLanguage,
+          title: 'Preparing image',
+          detail: 'Full image blocked; capturing visible area'
+        });
+
+        const screenshotDataUrl = await captureVisibleTab(tab.windowId);
+        capture = await sendMessageToFrame(tab.id, frameId, {
+          type: "UGT_IMAGE_TRANSLATION_CAPTURE",
+          requestId,
+          screenshotDataUrl,
+          targetLanguage
+        });
+        capture.warning = capture.warning || `Full image unavailable: ${sourceTabError.message || String(sourceTabError)}`;
+      }
+    }
+
+    if (!capture?.ok || !capture.imageDataUrl) {
+      throw new Error(capture?.error || 'Could not capture the clicked image');
+    }
+
+    const imageByteLength = capture.byteLength || estimateDataUrlByteLength(capture.imageDataUrl);
+    const size = chooseImageEditSize(capture.width, capture.height);
+    const startedAt = Date.now();
+
+    await sendImageTranslationProgress(tab.id, frameId, requestId, {
+      targetLanguage,
+      title: 'Sending image',
+      detail: 'Starting upload',
+      loadedBytes: 0,
+      totalBytes: imageByteLength
+    });
+
+    setImageTranslationDebugRequest({
+      requestId,
+      status: 'started',
+      tabId: tab.id,
+      frameId,
+      targetLanguage,
+      capturedWidth: capture.width,
+      capturedHeight: capture.height,
+      captureSource: capture.captureSource || 'unknown',
+      imageByteLength,
+      warning: capture.warning,
+      requestedSize: size,
+      model: 'gpt-image-2',
+      quality: 'low',
+      outputFormat: 'png'
+    });
+
+    await startImageEditViaOffscreen({
+      requestId,
+      tabId: tab.id,
+      frameId,
+      imageDataUrl: capture.imageDataUrl,
+      apiKey: data.openaiApiKey,
+      prompt: buildImageTranslationPrompt(targetLanguage),
+      model: 'gpt-image-2',
+      quality: 'low',
+      size,
+      outputFormat: 'png',
+      imageByteLength,
+      captureSource: capture.captureSource || 'unknown',
+      startedAt
+    });
+
+    setImageTranslationDebugResponse({
+      requestId,
+      status: 'offscreen_started',
+      elapsedMs: Date.now() - startedAt,
+      requestedSize: size
+    });
+  } catch (error) {
+    console.error("Image translation error:", error);
+    setImageTranslationDebugResponse({
+      requestId,
+      status: 'error',
+      error: error.message || String(error)
+    });
+
+    try {
+      await sendMessageToFrame(tab.id, frameId, {
+        type: "UGT_IMAGE_TRANSLATION_ERROR",
+        requestId,
+        error: error.message || String(error)
+      });
+    } catch (sendError) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon128.png',
+        title: 'UGTBrowser',
+        message: `Image translation error: ${error.message || String(error)}`,
+        priority: 1
+      }, (notificationId) => {
+        setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+      });
+    }
   }
 }
 
@@ -1060,6 +1497,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Set up settings change listener
 setupSettingsChangeListener();
+setupContextMenuVisibilityListener();
 
 // Open options page when browser action is clicked
 chrome.action.onClicked.addListener(() => {

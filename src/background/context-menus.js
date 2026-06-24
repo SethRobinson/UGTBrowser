@@ -5,11 +5,22 @@ import {
   CONTEXT_MENU_PARENT,
   CONTEXT_MENU_TRANSLATE,
   CONTEXT_MENU_TRANSLATE_SIMPLE,
+  CONTEXT_MENU_TRANSLATE_IMAGE,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
   CONTEXT_MENU_SETTINGS
 } from '../shared/constants.js';
+
+const TEXT_CONTEXT_MENU_IDS = [
+  CONTEXT_MENU_TRANSLATE,
+  CONTEXT_MENU_TRANSLATE_SIMPLE,
+  CONTEXT_MENU_SPEAK,
+  CONTEXT_MENU_LESSON,
+  CONTEXT_MENU_ASK
+];
+
+let contextMenuVisibilityListenerRegistered = false;
 
 /**
  * Build the translate menu title based on settings
@@ -39,6 +50,27 @@ export function buildTranslateTitle(settings, simpleMode = false) {
 
   const baseTitle = `Translate to ${langName} with ${providerName}`;
   return simpleMode ? `${baseTitle} (Translate Only)` : baseTitle;
+}
+
+/**
+ * Build the image translation menu title based on settings
+ */
+export function buildImageTranslateTitle(settings) {
+  let langName = "English";
+
+  if (settings) {
+    if (settings.languageMode === 'custom') {
+      langName = settings.customLanguage?.trim() || "Custom";
+    } else if (settings.targetLanguage) {
+      langName = settings.targetLanguage;
+    }
+  }
+
+  if (langName.length > 18) {
+    langName = langName.substring(0, 18) + "...";
+  }
+
+  return `Translate image to ${langName}`;
 }
 
 /**
@@ -82,7 +114,7 @@ export function createContextMenus(settings = {}) {
     chrome.contextMenus.create({
       id: CONTEXT_MENU_PARENT,
       title: "UGTBrowser Language Tools",
-      contexts: ["selection", "page", "link"]
+      contexts: ["selection", "page", "link", "image"]
     });
     
     // Create Translate child item (full version with creative task and follow-up chat)
@@ -90,7 +122,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_TRANSLATE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings),
-      contexts: ["selection", "link"]
+      contexts: ["selection"]
     });
     
     // Create Translate Simple child item (translation only, no extras)
@@ -98,7 +130,15 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_TRANSLATE_SIMPLE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings, true),
-      contexts: ["selection", "link"]
+      contexts: ["selection"]
+    });
+
+    // Create Image Translate child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE_IMAGE,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildImageTranslateTitle(settings),
+      contexts: ["image"]
     });
     
     // Create Speak child item
@@ -106,7 +146,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_SPEAK,
       parentId: CONTEXT_MENU_PARENT,
       title: buildSpeakTitle(settings),
-      contexts: ["selection", "link"]
+      contexts: ["selection"]
     });
     
     // Create Lesson child item
@@ -114,7 +154,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_LESSON,
       parentId: CONTEXT_MENU_PARENT,
       title: "Create Lesson",
-      contexts: ["selection", "link"]
+      contexts: ["selection"]
     });
     
     // Create Ask child item
@@ -122,7 +162,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_ASK,
       parentId: CONTEXT_MENU_PARENT,
       title: "Ask About Selection",
-      contexts: ["selection", "link"]
+      contexts: ["selection"]
     });
     
     // Create a disabled hint item (only when NO selection)
@@ -139,7 +179,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_SETTINGS,
       parentId: CONTEXT_MENU_PARENT,
       title: "Settings",
-      contexts: ["selection", "page", "link"]
+      contexts: ["selection", "page", "link", "image"]
     });
   });
 }
@@ -170,6 +210,38 @@ export function initializeContextMenus() {
     'googleTtsVoice', 'googleTtsVoiceName'
   ], (fullSettings) => {
     createContextMenus(getEffectiveSettings(fullSettings));
+  });
+}
+
+/**
+ * Hide text actions when Chrome reports a combined image+link context.
+ */
+export function setupContextMenuVisibilityListener() {
+  if (contextMenuVisibilityListenerRegistered || !chrome.contextMenus.onShown) return;
+  contextMenuVisibilityListenerRegistered = true;
+
+  chrome.contextMenus.onShown.addListener((info) => {
+    const isImageContext = info.mediaType === 'image' || Boolean(info.srcUrl);
+    const textToolsVisible = !isImageContext;
+    let pendingUpdates = TEXT_CONTEXT_MENU_IDS.length + 1;
+    const refreshWhenDone = () => {
+      pendingUpdates -= 1;
+      if (pendingUpdates === 0 && chrome.contextMenus.refresh) {
+        chrome.contextMenus.refresh();
+      }
+    };
+
+    TEXT_CONTEXT_MENU_IDS.forEach((id) => {
+      chrome.contextMenus.update(id, { visible: textToolsVisible }, () => {
+        chrome.runtime.lastError;
+        refreshWhenDone();
+      });
+    });
+
+    chrome.contextMenus.update(CONTEXT_MENU_TRANSLATE_IMAGE, { visible: true }, () => {
+      chrome.runtime.lastError;
+      refreshWhenDone();
+    });
   });
 }
 
