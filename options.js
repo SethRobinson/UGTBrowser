@@ -119,14 +119,16 @@ const modalCloseBtn = document.querySelector('.modal-close-btn');
 
 // --- Configuration Data ---
 const noTemperatureModels = [
-  "gpt-5-mini", "gpt-5-nano", 
+  "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+  "gpt-5-mini", "gpt-5-nano",
+  "claude-opus-4-8",
   "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-3-pro-preview", "gemini-3-flash-preview"
 ];
 
 const providerModels = {
-  openai: ["gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
-  anthropic: ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"],
+  openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
   gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 };
 
@@ -895,13 +897,14 @@ function resetLessonPromptToDefault() {
 }
 
 function supportsTemperature(model) {
-  return !noTemperatureModels.includes(model);
+  if (!model) return true;
+  return !noTemperatureModels.includes(model.toLowerCase());
 }
 
 // Helper functions to check if models support thinking
 function isGPT5Model(model) {
   if (!model) return false;
-  return model.startsWith('gpt-5');
+  return model.toLowerCase().startsWith('gpt-5');
 }
 
 function isGemini25Or3Model(model) {

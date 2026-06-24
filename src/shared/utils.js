@@ -11,7 +11,8 @@ import { noTemperatureModels } from './constants.js';
  * Check if a model supports temperature settings
  */
 export function supportsTemperature(model) {
-  return !noTemperatureModels.includes(model);
+  if (!model) return true;
+  return !noTemperatureModels.includes(model.toLowerCase());
 }
 
 /**
@@ -19,7 +20,7 @@ export function supportsTemperature(model) {
  */
 export function isGPT5Model(model) {
   if (!model) return false;
-  return model.startsWith('gpt-5');
+  return model.toLowerCase().startsWith('gpt-5');
 }
 
 /**
@@ -28,6 +29,17 @@ export function isGPT5Model(model) {
 export function isGPT52Pro(model) {
   if (!model) return false;
   return model.toLowerCase() === 'gpt-5.2-pro';
+}
+
+/**
+ * Check if an OpenAI model should use the Responses API.
+ */
+export function usesOpenAIResponsesApi(model) {
+  if (!model) return false;
+  const lowerModel = model.toLowerCase();
+  return lowerModel === 'gpt-5.5' ||
+    lowerModel.startsWith('gpt-5.4') ||
+    lowerModel === 'gpt-5.2-pro';
 }
 
 /**
@@ -53,6 +65,10 @@ export function getReasoningEffort(model, thinkingEnabled) {
   
   if (lowerModel === 'gpt-5.2-pro') {
     return thinkingEnabled ? "high" : "medium";
+  }
+
+  if (lowerModel === 'gpt-5.5' || lowerModel.startsWith('gpt-5.4')) {
+    return thinkingEnabled ? "medium" : "low";
   }
   
   if (thinkingEnabled) {

@@ -3,8 +3,13 @@
 
 // Models that don't support temperature settings
 export const noTemperatureModels = [
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
   "gpt-5-mini",
   "gpt-5-nano",
+  "claude-opus-4-8",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
@@ -14,8 +19,8 @@ export const noTemperatureModels = [
 
 // Provider model configurations
 export const providerModels = {
-  openai: ["gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
-  anthropic: ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5"],
+  openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
   gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 };
 

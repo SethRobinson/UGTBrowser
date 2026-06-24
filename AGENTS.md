@@ -84,15 +84,28 @@ Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key
 
 Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context.
 
+## Text Model Defaults
+
+The model catalogs are duplicated in `options.js` and `src/shared/constants.js`; keep them synchronized.
+
+Current text defaults:
+
+- OpenAI defaults to `gpt-5.5`. `gpt-5.5`, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API for text generation and streaming; older supported OpenAI text models remain on Chat Completions. Do not send `temperature` to `gpt-5.5` or GPT-5.4 variants.
+- Anthropic defaults to `claude-sonnet-4-6`, with `claude-opus-4-8` selectable for higher-capability work. Do not send non-default sampling parameters such as `temperature` to `claude-opus-4-8`.
+
 ## Build And Smoke Checks
 
 Useful checks after edits:
 
 ```bash
 node --check contentScript.js
+node --check options.js
+node --check src/shared/constants.js
+node --check src/shared/utils.js
 node --check src/background/main.js
 node --check src/background/context-menus.js
 node --check src/background/api/openai.js
+node --check src/background/api/anthropic.js
 npm run package
 ```
 

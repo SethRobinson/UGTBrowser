@@ -1,26 +1,24 @@
 // src/background/api/openai.js
 // OpenAI API integration for translation and chat
 
-import { supportsTemperature, isGPT5Model, isGPT52Pro, getReasoningEffort } from '../../shared/utils.js';
+import { supportsTemperature, usesOpenAIResponsesApi, getReasoningEffort } from '../../shared/utils.js';
 
 const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
+const OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 
 /**
  * Non-streaming OpenAI API call
  */
 export async function fetchFromOpenAI(prompt, model, apiKey) {
   if (!apiKey) throw new Error("OpenAI API key is required");
-  
-  const endpoint = "https://api.openai.com/v1/chat/completions";
-  
-  const requestBody = {
-    model: model || "gpt-4o",
-    messages: [{ role: "user", content: prompt }]
-  };
-  
-  if (supportsTemperature(model)) {
-    requestBody.temperature = 0.1;
-  }
+
+  const modelToUse = model || "gpt-5.5";
+  const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
+  const endpoint = useResponsesApi ? OPENAI_RESPONSES_ENDPOINT : OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+  const requestBody = useResponsesApi
+    ? buildOpenAIResponsesRequestBody(prompt, modelToUse, false, { stream: false })
+    : buildOpenAIChatCompletionsRequestBody(prompt, modelToUse, false, 0.1);
   
   const response = await fetch(endpoint, {
     method: "POST",
@@ -37,6 +35,10 @@ export async function fetchFromOpenAI(prompt, model, apiKey) {
   }
   
   const data = await response.json();
+  if (useResponsesApi) {
+    return extractOpenAIResponsesText(data);
+  }
+
   return data.choices[0].message.content;
 }
 
@@ -189,49 +191,151 @@ function sendOpenAIImageEditWithXhr({
   });
 }
 
+function buildOpenAIResponsesRequestBody(prompt, model, thinkingEnabled, { stream = false, maxOutputTokens = 16384 } = {}) {
+  const requestBody = {
+    model,
+    input: prompt,
+    max_output_tokens: maxOutputTokens
+  };
+
+  if (stream) {
+    requestBody.stream = true;
+  }
+
+  const reasoningEffort = getReasoningEffort(model, thinkingEnabled);
+  if (reasoningEffort) {
+    requestBody.reasoning = { effort: reasoningEffort };
+  }
+
+  return requestBody;
+}
+
+function buildOpenAIChatCompletionsRequestBody(prompt, model, stream, temperature, thinkingEnabled = false) {
+  const requestBody = {
+    model,
+    messages: [{ role: "user", content: prompt }]
+  };
+
+  if (stream) {
+    requestBody.stream = true;
+  }
+
+  if (supportsTemperature(model)) {
+    requestBody.temperature = temperature;
+  }
+
+  const reasoningEffort = getReasoningEffort(model, thinkingEnabled);
+  if (reasoningEffort) {
+    requestBody.reasoning_effort = reasoningEffort;
+  }
+
+  return requestBody;
+}
+
+function extractOpenAIResponsesText(data) {
+  if (typeof data?.output_text === "string" && data.output_text) {
+    return data.output_text;
+  }
+
+  let textContent = "";
+  if (Array.isArray(data?.output)) {
+    for (const item of data.output) {
+      if (item?.type !== "message" || !Array.isArray(item.content)) continue;
+      for (const contentItem of item.content) {
+        if (contentItem?.type === "output_text" && typeof contentItem.text === "string") {
+          textContent += contentItem.text;
+        }
+      }
+    }
+  }
+
+  if (!textContent) {
+    console.error("OpenAI Responses API: could not extract text from response", data);
+    throw new Error("Could not extract text from Responses API response");
+  }
+
+  return textContent;
+}
+
+function extractOpenAIResponsesStreamDelta(data) {
+  if (data?.type === "response.output_text.delta" && typeof data.delta === "string") {
+    return data.delta;
+  }
+  return "";
+}
+
+function extractOpenAIChatCompletionsStreamDelta(data) {
+  return data?.choices?.[0]?.delta?.content || "";
+}
+
+async function readOpenAISseStream(response, abortSignal, onData, { logParseErrors = false } = {}) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  const processLine = (rawLine) => {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line.startsWith("data: ")) return;
+
+    const payload = line.substring(6);
+    if (!payload || payload === "[DONE]") return;
+
+    let data;
+    try {
+      data = JSON.parse(payload);
+    } catch (error) {
+      if (logParseErrors && (!abortSignal || !abortSignal.aborted)) {
+        console.error("Error parsing OpenAI stream line:", error, "Line:", line);
+      }
+      return;
+    }
+
+    onData(data);
+  };
+
+  try {
+    while (true) {
+      if (abortSignal && abortSignal.aborted) break;
+
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (abortSignal && abortSignal.aborted) break;
+        processLine(line);
+      }
+    }
+
+    if (buffer.trim() && (!abortSignal || !abortSignal.aborted)) {
+      processLine(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /**
  * Streaming OpenAI API call for translations
  */
 export async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
-  const modelToUse = model || "gpt-4o";
+  const modelToUse = model || "gpt-5.5";
   const thinkingEnabled = settings.openaiThinkingEnabled === true;
-  const useResponsesApi = isGPT52Pro(modelToUse);
+  const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
   const reasoningEffort = getReasoningEffort(modelToUse, thinkingEnabled);
   
   console.log(`Starting OpenAI streaming request: model=${modelToUse}, useResponsesApi=${useResponsesApi}, thinkingEnabled=${thinkingEnabled}, reasoningEffort=${reasoningEffort}`);
   
-  let endpoint, requestBody;
-  
-  if (useResponsesApi) {
-    endpoint = "https://api.openai.com/v1/responses";
-    requestBody = {
-      model: modelToUse,
-      input: prompt,
-      max_output_tokens: 16384
-    };
-    
-    if (reasoningEffort) {
-      requestBody.reasoning = { effort: reasoningEffort };
-    }
-  } else {
-    endpoint = "https://api.openai.com/v1/chat/completions";
-    requestBody = {
-      model: modelToUse,
-      messages: [{ role: "user", content: prompt }],
-      stream: true
-    };
-    
-    if (supportsTemperature(modelToUse)) {
-      requestBody.temperature = 0.1;
-    }
-    
-    const reasoningEffortForChat = getReasoningEffort(modelToUse, thinkingEnabled);
-    if (reasoningEffortForChat) {
-      requestBody.reasoning_effort = reasoningEffortForChat;
-    }
-  }
+  const endpoint = useResponsesApi ? OPENAI_RESPONSES_ENDPOINT : OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+  const requestBody = useResponsesApi
+    ? buildOpenAIResponsesRequestBody(prompt, modelToUse, thinkingEnabled, { stream: true })
+    : buildOpenAIChatCompletionsRequestBody(prompt, modelToUse, true, 0.1, thinkingEnabled);
   
   const fetchOptions = {
     method: "POST",
@@ -253,112 +357,43 @@ export async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, upda
       const error = await response.json().catch(() => null);
       throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
     }
-    
-    if (useResponsesApi) {
-      console.log("OpenAI Responses API: parsing complete response");
-      const data = await response.json();
-      
-      let textContent = "";
-      if (data.output && Array.isArray(data.output)) {
-        for (const item of data.output) {
-          if (item.type === "message" && item.content && Array.isArray(item.content)) {
-            for (const contentItem of item.content) {
-              if (contentItem.type === "output_text" && contentItem.text) {
-                textContent += contentItem.text;
-              }
-            }
-          }
+
+    console.log(`OpenAI ${useResponsesApi ? "Responses API" : "Chat Completions"} stream connected`);
+    let chunkCount = 0;
+
+    await readOpenAISseStream(response, abortSignal, (data) => {
+      const newContent = useResponsesApi
+        ? extractOpenAIResponsesStreamDelta(data)
+        : extractOpenAIChatCompletionsStreamDelta(data);
+
+      if (!newContent) return;
+
+      if (!abortSignal || !abortSignal.aborted) {
+        try {
+          port.postMessage({ type: "STREAM_CHUNK", chunk: newContent });
+        } catch (error) {
+          console.log("Port disconnected during OpenAI streaming, stopping");
+          throw new Error("Port disconnected during OpenAI streaming");
         }
       }
-      
-      if (!textContent && data.output_text) {
-        textContent = data.output_text;
-      }
-      
-      if (textContent) {
-        if (!abortSignal || !abortSignal.aborted) {
-          try {
-            port.postMessage({ type: "STREAM_CHUNK", chunk: textContent });
-          } catch (e) {
-            console.log("Port disconnected during OpenAI Responses API, stopping");
-            return;
-          }
-        }
-        if (updateCallback) updateCallback(textContent);
-        console.log("OpenAI Responses API: sent complete response");
-      } else {
-        console.error("OpenAI Responses API: could not extract text from response", data);
-        throw new Error("Could not extract text from Responses API response");
-      }
-    } else {
-      console.log("OpenAI stream connected, reading data (tagged format)");
-      
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-      let chunkCount = 0;
-      
-      try {
-        while (true) {
-          if (abortSignal && abortSignal.aborted) {
-            console.log("OpenAI stream aborted by user");
-            break;
-          }
-          
-          const { done, value } = await reader.read();
-          if (done) {
-            console.log("OpenAI stream complete after", chunkCount, "chunks");
-            break;
-          }
-          
-          const chunk = decoder.decode(value);
-          buffer += chunk;
-          
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          
-          for (const line of lines) {
-            if (abortSignal && abortSignal.aborted) break;
-            
-            if (line.startsWith("data: ") && line !== "data: [DONE]") {
-              try {
-                const data = JSON.parse(line.substring(6));
-                if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-                  const newContent = data.choices[0].delta.content;
-                  if (!abortSignal || !abortSignal.aborted) {
-                    try {
-                      port.postMessage({ type: "STREAM_CHUNK", chunk: newContent });
-                    } catch (e) {
-                      console.log("Port disconnected during OpenAI streaming, stopping");
-                      return;
-                    }
-                  }
-                  if (updateCallback) updateCallback(newContent);
-                  chunkCount++;
-                }
-              } catch (e) {
-                if (!abortSignal || !abortSignal.aborted) {
-                  console.error("Error parsing OpenAI stream line:", e, "Line:", line);
-                }
-              }
-            } else if (line === "data: [DONE]") {
-              console.log("OpenAI stream [DONE] marker received");
-            }
-          }
-        }
-        
-        if (!abortSignal || !abortSignal.aborted) {
-          console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
-        }
-      } finally {
-        reader.releaseLock();
-      }
+
+      if (updateCallback) updateCallback(newContent);
+      chunkCount++;
+    }, { logParseErrors: true });
+
+    if (!abortSignal || !abortSignal.aborted) {
+      console.log("OpenAI streaming finished from provider function, total chunks:", chunkCount);
     }
   } catch (error) {
     if (error.name === 'AbortError') {
       console.log("OpenAI streaming was cancelled");
       return;
     }
+
+    if (error.message === "Port disconnected during OpenAI streaming") {
+      return;
+    }
+
     throw error;
   }
 }
@@ -369,18 +404,13 @@ export async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, upda
 export async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
-  const modelToUse = model || "gpt-4o";
-  const endpoint = "https://api.openai.com/v1/chat/completions";
-  
-  const requestBody = {
-    model: modelToUse,
-    messages: [{ role: "user", content: prompt }],
-    stream: true
-  };
-  
-  if (supportsTemperature(modelToUse)) {
-    requestBody.temperature = 0.7;
-  }
+  const modelToUse = model || "gpt-5.5";
+  const thinkingEnabled = settings.openaiThinkingEnabled === true;
+  const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
+  const endpoint = useResponsesApi ? OPENAI_RESPONSES_ENDPOINT : OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+  const requestBody = useResponsesApi
+    ? buildOpenAIResponsesRequestBody(prompt, modelToUse, thinkingEnabled, { stream: true })
+    : buildOpenAIChatCompletionsRequestBody(prompt, modelToUse, true, 0.7, thinkingEnabled);
   
   const response = await fetch(endpoint, {
     method: "POST",
@@ -397,37 +427,13 @@ export async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendCh
     throw new Error(error?.error?.message || `OpenAI API error: ${response.status}`);
   }
   
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-  
-  try {
-    while (true) {
-      if (abortSignal && abortSignal.aborted) break;
-      
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value);
-      buffer += chunk;
-      
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      
-      for (const line of lines) {
-        if (line.startsWith("data: ") && line !== "data: [DONE]") {
-          try {
-            const data = JSON.parse(line.substring(6));
-            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-              sendChunk(data.choices[0].delta.content);
-            }
-          } catch (e) {
-            // Ignore parse errors for incomplete JSON
-          }
-        }
-      }
+  await readOpenAISseStream(response, abortSignal, (data) => {
+    const newContent = useResponsesApi
+      ? extractOpenAIResponsesStreamDelta(data)
+      : extractOpenAIChatCompletionsStreamDelta(data);
+
+    if (newContent) {
+      sendChunk(newContent);
     }
-  } finally {
-    reader.releaseLock();
-  }
+  });
 }

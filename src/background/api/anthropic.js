@@ -9,7 +9,9 @@ import { supportsTemperature } from '../../shared/utils.js';
 function getMaxTokensForModel(model) {
   if (!model) return 4096;
   
-  if (model.includes("claude-sonnet-4-5") || model.includes("claude-opus-4-5") || model.includes("claude-haiku-4-5")) {
+  if (model.includes("claude-opus-4-8") || model.includes("claude-sonnet-4-6") ||
+      model.includes("claude-sonnet-4-5") || model.includes("claude-opus-4-5") ||
+      model.includes("claude-haiku-4-5")) {
     return 8192;
   } else if (model.includes("claude-3-7-sonnet")) {
     return 64000;
@@ -27,7 +29,7 @@ export async function fetchFromAnthropic(prompt, model, apiKey) {
   if (!apiKey) throw new Error("Anthropic API key is required");
   
   const maxTokens = getMaxTokensForModel(model);
-  const modelToUse = model || "claude-sonnet-4-5";
+  const modelToUse = model || "claude-sonnet-4-6";
   
   console.log("Using Anthropic model:", modelToUse);
   
@@ -76,7 +78,7 @@ export async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, u
   console.log("Starting Anthropic streaming request with new tagged format handling");
   
   const maxTokens = getMaxTokensForModel(model);
-  const modelToUse = model || "claude-sonnet-4-5";
+  const modelToUse = model || "claude-sonnet-4-6";
   
   console.log("Using Anthropic model:", modelToUse);
   
@@ -188,7 +190,7 @@ export async function fetchFromAnthropicStreaming(prompt, model, apiKey, port, u
 export async function fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal = null) {
   if (!apiKey) throw new Error("Anthropic API key is required");
   
-  const modelToUse = model || "claude-sonnet-4-5";
+  const modelToUse = model || "claude-sonnet-4-6";
   const maxTokens = getMaxTokensForModel(model);
   
   const endpoint = "https://api.anthropic.com/v1/messages";
