@@ -6,6 +6,7 @@ import {
   CONTEXT_MENU_TRANSLATE,
   CONTEXT_MENU_TRANSLATE_SIMPLE,
   CONTEXT_MENU_TRANSLATE_IMAGE,
+  CONTEXT_MENU_TRANSLATE_VIDEO_FRAME,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
@@ -74,6 +75,27 @@ export function buildImageTranslateTitle(settings) {
 }
 
 /**
+ * Build the video frame translation menu title based on settings
+ */
+export function buildVideoFrameTranslateTitle(settings) {
+  let langName = "English";
+
+  if (settings) {
+    if (settings.languageMode === 'custom') {
+      langName = settings.customLanguage?.trim() || "Custom";
+    } else if (settings.targetLanguage) {
+      langName = settings.targetLanguage;
+    }
+  }
+
+  if (langName.length > 18) {
+    langName = langName.substring(0, 18) + "...";
+  }
+
+  return `Translate video frame to ${langName}`;
+}
+
+/**
  * Build the speak menu title based on TTS settings
  */
 export function buildSpeakTitle(settings) {
@@ -114,7 +136,7 @@ export function createContextMenus(settings = {}) {
     chrome.contextMenus.create({
       id: CONTEXT_MENU_PARENT,
       title: "UGTBrowser Language Tools",
-      contexts: ["selection", "page", "link", "image"]
+      contexts: ["selection", "page", "link", "image", "video"]
     });
     
     // Create Translate child item (full version with creative task and follow-up chat)
@@ -139,6 +161,14 @@ export function createContextMenus(settings = {}) {
       parentId: CONTEXT_MENU_PARENT,
       title: buildImageTranslateTitle(settings),
       contexts: ["image"]
+    });
+
+    // Create Video Frame Translate child item
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE_VIDEO_FRAME,
+      parentId: CONTEXT_MENU_PARENT,
+      title: buildVideoFrameTranslateTitle(settings),
+      contexts: ["video", "page"]
     });
     
     // Create Speak child item
@@ -179,7 +209,7 @@ export function createContextMenus(settings = {}) {
       id: CONTEXT_MENU_SETTINGS,
       parentId: CONTEXT_MENU_PARENT,
       title: "Settings",
-      contexts: ["selection", "page", "link", "image"]
+      contexts: ["selection", "page", "link", "image", "video"]
     });
   });
 }
@@ -214,16 +244,18 @@ export function initializeContextMenus() {
 }
 
 /**
- * Hide text actions when Chrome reports a combined image+link context.
+ * Hide text actions when Chrome reports a combined media+link context.
  */
 export function setupContextMenuVisibilityListener() {
   if (contextMenuVisibilityListenerRegistered || !chrome.contextMenus.onShown) return;
   contextMenuVisibilityListenerRegistered = true;
 
   chrome.contextMenus.onShown.addListener((info) => {
-    const isImageContext = info.mediaType === 'image' || Boolean(info.srcUrl);
-    const textToolsVisible = !isImageContext;
-    let pendingUpdates = TEXT_CONTEXT_MENU_IDS.length + 1;
+    const isImageContext = info.mediaType === 'image' || (Boolean(info.srcUrl) && info.mediaType !== 'video');
+    const isVideoContext = info.mediaType === 'video';
+    const isMediaContext = isImageContext || isVideoContext || Boolean(info.srcUrl);
+    const textToolsVisible = !isMediaContext;
+    let pendingUpdates = TEXT_CONTEXT_MENU_IDS.length + 2;
     const refreshWhenDone = () => {
       pendingUpdates -= 1;
       if (pendingUpdates === 0 && chrome.contextMenus.refresh) {
@@ -239,6 +271,11 @@ export function setupContextMenuVisibilityListener() {
     });
 
     chrome.contextMenus.update(CONTEXT_MENU_TRANSLATE_IMAGE, { visible: true }, () => {
+      chrome.runtime.lastError;
+      refreshWhenDone();
+    });
+
+    chrome.contextMenus.update(CONTEXT_MENU_TRANSLATE_VIDEO_FRAME, { visible: !isImageContext }, () => {
       chrome.runtime.lastError;
       refreshWhenDone();
     });

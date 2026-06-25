@@ -73,6 +73,21 @@ Known limitations:
 - Full-image capture depends on browser access to the clicked image source or to a temporary direct source tab. When both are blocked, the fallback still translates only the visible screenshot crop.
 - The result is generative image localization, so dense document text can still be imperfect.
 
+## Video Frame Translation Feature
+
+Video frame translation is a still-frame workflow, not live video translation. The context menu exposes `Translate video frame to X` on `video` and `page` contexts so direct HTML5 video right-clicks can work, and page-context fallback can select the largest visible/playing top-frame video when sites such as YouTube use custom player menus.
+
+The feature intentionally avoids direct video stream access and does not add `tabCapture` or new host permissions. The background service worker uses the existing `activeTab`-compatible `chrome.tabs.captureVisibleTab` path after the content script temporarily hides UGT overlays and common YouTube player chrome/context menus. The content script crops the visible tab screenshot to the selected video rect, then pauses the video only after the screenshot crop succeeds. The cropped PNG is sent through the same offscreen OpenAI image-edit pipeline as still-image translation with a video-frame-specific prompt.
+
+The translated result is rendered as a fixed-position still overlay on top of the paused video; the original video `src` is never replaced. The compact action control supports opening the translated frame, toggling translated/original frame visibility, and closing the overlay. Closing resumes playback only if UGTBrowser paused the video for this translation.
+
+Relevant code:
+
+- `src/shared/constants.js`: `CONTEXT_MENU_TRANSLATE_VIDEO_FRAME`
+- `src/background/context-menus.js`: video frame menu title and visibility behavior
+- `src/background/main.js`: `handleVideoFrameTranslateMenuClick`, video-frame prompt, screenshot capture handoff
+- `contentScript.js`: video target tracking, YouTube UI hiding during capture, screenshot crop, pause/resume state, translated frame overlay/actions
+
 ## Storage And Keys
 
 Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key fields include:

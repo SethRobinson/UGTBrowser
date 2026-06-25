@@ -36,6 +36,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Image translation variables
   let lastContextImage = null;
+  let lastContextVideo = null;
   const imageTranslationTargets = new Map();
   
   // Lesson progress overlay
@@ -2192,9 +2193,25 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return eventTarget.closest?.('img') || null;
   }
 
+  function getContextVideoElement(eventTarget, point = null) {
+    if (!eventTarget || eventTarget.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    const directVideo = eventTarget.closest?.('video');
+    if (directVideo) return directVideo;
+
+    return findBestVideoTranslationCandidate({ point });
+  }
+
   function imageSourceMatches(image, srcUrl) {
     if (!image || !srcUrl) return false;
     return image.currentSrc === srcUrl || image.src === srcUrl || image.getAttribute('src') === srcUrl;
+  }
+
+  function videoSourceMatches(video, srcUrl) {
+    if (!video || !srcUrl) return false;
+    return video.currentSrc === srcUrl || video.src === srcUrl || video.getAttribute('src') === srcUrl;
   }
 
   function getClippedImageRect(image) {
@@ -2208,6 +2225,48 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     clipped.width = clipped.right - clipped.left;
     clipped.height = clipped.bottom - clipped.top;
     return { rect, clipped };
+  }
+
+  function pointIsInsideRect(point, rect) {
+    if (!point || !rect) return false;
+    return point.clientX >= rect.left && point.clientX <= rect.right && point.clientY >= rect.top && point.clientY <= rect.bottom;
+  }
+
+  function scoreVideoTranslationCandidate(video, options = {}) {
+    if (!video?.isConnected) return -1;
+
+    const style = getComputedStyle(video);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+      return -1;
+    }
+
+    const { clipped } = getClippedImageRect(video);
+    if (clipped.width < 80 || clipped.height < 45) return -1;
+
+    const visibleArea = clipped.width * clipped.height;
+    let score = visibleArea;
+
+    if (!video.paused && !video.ended) score += visibleArea * 1.5;
+    if (video.readyState >= 2) score += 5000;
+    if (pointIsInsideRect(options.point, video.getBoundingClientRect())) score += visibleArea * 3;
+    if (options.srcUrl && videoSourceMatches(video, options.srcUrl)) score += visibleArea * 4;
+
+    return score;
+  }
+
+  function findBestVideoTranslationCandidate(options = {}) {
+    let bestVideo = null;
+    let bestScore = -1;
+
+    Array.from(document.querySelectorAll('video')).forEach((video) => {
+      const score = scoreVideoTranslationCandidate(video, options);
+      if (score > bestScore) {
+        bestScore = score;
+        bestVideo = video;
+      }
+    });
+
+    return bestScore > 0 ? bestVideo : null;
   }
 
   function captureImageDisplayState(image) {
@@ -2280,6 +2339,80 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       sourceUrl: image.currentSrc || image.src || srcUrl || '',
       naturalWidth: image.naturalWidth || 0,
       naturalHeight: image.naturalHeight || 0,
+      rect: clipped,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight
+      }
+    };
+  }
+
+  function getVideoFrameTranslationTarget(srcUrl, requestId, options = {}) {
+    const now = Date.now();
+    let video = null;
+
+    if (lastContextVideo && now - lastContextVideo.time < 15000) {
+      if (!srcUrl || videoSourceMatches(lastContextVideo.video, srcUrl) || options.mediaType === 'video') {
+        video = lastContextVideo.video;
+      }
+    }
+
+    if (!video && srcUrl) {
+      video = Array.from(document.querySelectorAll('video')).find((candidate) => videoSourceMatches(candidate, srcUrl)) || null;
+    }
+
+    if (!video) {
+      video = findBestVideoTranslationCandidate({ srcUrl });
+    }
+
+    if (!video) {
+      return { ok: false, error: 'Could not find a visible video on the page.' };
+    }
+
+    const { rect, clipped } = getClippedImageRect(video);
+
+    if (clipped.width < 80 || clipped.height < 45) {
+      return { ok: false, error: 'The selected video is not visible enough to capture.' };
+    }
+
+    imageTranslationTargets.set(requestId, {
+      kind: 'video-frame',
+      video,
+      rect: clipped,
+      originalRect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      },
+      originalStyle: {
+        filter: video.style.filter,
+        opacity: video.style.opacity
+      },
+      sourceUrl: video.currentSrc || video.src || srcUrl || '',
+      progressTitle: 'Preparing frame',
+      progressDetail: '',
+      targetLanguage: '',
+      translatedImageDataUrl: '',
+      showingTranslatedImage: false,
+      overlay: null,
+      actionsOverlay: null,
+      actionsTimer: null,
+      resultOverlay: null,
+      captureCleanupTimer: null,
+      capturePrepared: false,
+      pausedForTranslation: false,
+      wasPausedAtCapture: video.paused,
+      timer: null,
+      startedAt: 0
+    });
+
+    return {
+      ok: true,
+      isTopFrame: window.self === window.top,
+      sourceUrl: video.currentSrc || video.src || srcUrl || '',
+      naturalWidth: video.videoWidth || Math.round(rect.width) || 0,
+      naturalHeight: video.videoHeight || Math.round(rect.height) || 0,
       rect: clipped,
       viewport: {
         width: window.innerWidth,
@@ -2380,7 +2513,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       .ugt-image-translation-actions:hover,
       .ugt-image-translation-actions:focus-within,
       .ugt-image-translation-actions[data-expanded="true"] {
-        max-width: 86px;
+        max-width: 112px;
         background: rgba(15, 23, 42, 0.95);
         border-color: rgba(255, 255, 255, 0.82);
       }
@@ -2438,6 +2571,36 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         background: rgba(217, 119, 6, 0.96);
         border-color: rgba(255, 255, 255, 0.78);
       }
+      .ugt-video-frame-translation-result {
+        position: fixed;
+        z-index: 2147483646;
+        pointer-events: none;
+        overflow: hidden;
+        background: #000000;
+        box-sizing: border-box;
+      }
+      .ugt-video-frame-translation-result img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: contain;
+        background: #000000;
+      }
+      html.ugt-video-frame-capturing .ugt-image-translation-overlay,
+      html.ugt-video-frame-capturing .ugt-image-translation-actions,
+      html.ugt-video-frame-capturing .ugt-video-frame-translation-result,
+      html.ugt-video-frame-capturing .ytp-chrome-bottom,
+      html.ugt-video-frame-capturing .ytp-chrome-top,
+      html.ugt-video-frame-capturing .ytp-gradient-bottom,
+      html.ugt-video-frame-capturing .ytp-gradient-top,
+      html.ugt-video-frame-capturing .ytp-contextmenu,
+      html.ugt-video-frame-capturing .ytp-popup,
+      html.ugt-video-frame-capturing .ytp-tooltip,
+      html.ugt-video-frame-capturing .ytp-spinner,
+      html.ugt-video-frame-capturing .ytp-pause-overlay {
+        opacity: 0 !important;
+        visibility: hidden !important;
+      }
       @keyframes ugtImageTranslationSpin {
         to { transform: rotate(360deg); }
       }
@@ -2480,10 +2643,63 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return `${detail} · ${seconds}s`;
   }
 
-  function updateImageTranslationOverlayPosition(target) {
-    if (!target?.overlay || !target.image) return;
+  function scoreVideoFrameTranslationCandidate(video, target) {
+    if (!video || video === target.video) return -1;
 
-    const { clipped } = getClippedImageRect(target.image);
+    const { clipped } = getClippedImageRect(video);
+    if (clipped.width < 80 || clipped.height < 45) return -1;
+
+    const centerX = clipped.left + clipped.width / 2;
+    const centerY = clipped.top + clipped.height / 2;
+    const originalCenterX = target.originalRect.left + target.originalRect.width / 2;
+    const originalCenterY = target.originalRect.top + target.originalRect.height / 2;
+    const distance = Math.hypot(centerX - originalCenterX, centerY - originalCenterY);
+    let score = Math.max(0, 100 - distance / 6);
+
+    if (!video.paused && !video.ended) score += 30;
+    if (target.sourceUrl && videoSourceMatches(video, target.sourceUrl)) score += 100;
+    score += Math.min(60, (clipped.width * clipped.height) / 20000);
+
+    return score;
+  }
+
+  function resolveCurrentVideoFrameTranslationElement(target) {
+    if (target.video?.isConnected) {
+      const { clipped } = getClippedImageRect(target.video);
+      if (clipped.width >= 80 && clipped.height >= 45) {
+        return target.video;
+      }
+    }
+
+    let bestVideo = null;
+    let bestScore = -1;
+    for (const candidate of Array.from(document.querySelectorAll('video'))) {
+      const score = scoreVideoFrameTranslationCandidate(candidate, target);
+      if (score > bestScore) {
+        bestScore = score;
+        bestVideo = candidate;
+      }
+    }
+
+    return bestScore > 0 ? bestVideo : target.video;
+  }
+
+  function getImageTranslationVisualElement(target) {
+    if (target?.kind === 'video-frame') {
+      target.video = resolveCurrentVideoFrameTranslationElement(target);
+      return target.video;
+    }
+
+    return target?.image || null;
+  }
+
+  function updateImageTranslationOverlayPosition(target) {
+    if (!target?.overlay) return;
+
+    const visualElement = getImageTranslationVisualElement(target);
+    if (!visualElement) return;
+
+    const { clipped } = getClippedImageRect(visualElement);
     if (clipped.width < 1 || clipped.height < 1) {
       target.overlay.style.display = 'none';
       return;
@@ -2547,6 +2763,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
     ensureImageTranslationStyles();
 
+    const visualElement = getImageTranslationVisualElement(target);
+    if (!visualElement) return null;
+
     const overlay = document.createElement('div');
     overlay.className = 'ugt-image-translation-overlay';
     target.targetLanguage = targetLanguage || target.targetLanguage || 'English';
@@ -2563,15 +2782,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
     target.overlay = overlay;
     target.startedAt = Date.now();
-    const imageStyle = getComputedStyle(target.image);
-    if (imageStyle.opacity !== '0' && imageStyle.visibility !== 'hidden' && imageStyle.display !== 'none') {
-      target.image.style.filter = `${target.image.style.filter || ''} saturate(0.85) blur(0.4px)`.trim();
-      target.image.style.opacity = target.image.style.opacity || '0.82';
-    }
 
     target.timer = setInterval(() => {
       renderImageTranslationProgress(target);
     }, 250);
+
+    const visualStyle = getComputedStyle(visualElement);
+    if (visualStyle.opacity !== '0' && visualStyle.visibility !== 'hidden' && visualStyle.display !== 'none') {
+      visualElement.style.filter = `${visualElement.style.filter || ''} saturate(0.85) blur(0.4px)`.trim();
+      visualElement.style.opacity = visualElement.style.opacity || '0.82';
+    }
 
     renderImageTranslationProgress(target);
 
@@ -2592,11 +2812,18 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       target.overlay = null;
     }
 
-    target.image.style.filter = target.originalStyle.filter;
-    target.image.style.opacity = target.originalStyle.opacity;
+    const visualElement = getImageTranslationVisualElement(target);
+    if (visualElement && target.originalStyle) {
+      visualElement.style.filter = target.originalStyle.filter || '';
+      visualElement.style.opacity = target.originalStyle.opacity || '';
+    }
 
     if (!keepTarget) {
-      removeImageTranslationActions(target);
+      if (target.kind === 'video-frame') {
+        cleanupVideoFrameTranslationTarget(target, { resume: true });
+      } else {
+        removeImageTranslationActions(target);
+      }
       imageTranslationTargets.delete(requestId);
     }
   }
@@ -2767,6 +2994,125 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       captureSource: 'visible_screenshot',
       warning: target.fullImageFetchError ? `Full image unavailable: ${target.fullImageFetchError}` : undefined
     };
+  }
+
+  function restoreVideoFrameCaptureUi(target) {
+    document.documentElement.classList.remove('ugt-video-frame-capturing');
+
+    if (target?.captureCleanupTimer) {
+      clearTimeout(target.captureCleanupTimer);
+      target.captureCleanupTimer = null;
+    }
+
+    if (target) {
+      target.capturePrepared = false;
+    }
+  }
+
+  async function waitForVideoFrameCaptureLayout() {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  }
+
+  async function prepareVideoFrameCapture(requestId, targetLanguage) {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target || target.kind !== 'video-frame') {
+      return { ok: false, error: 'Video frame translation target was lost.' };
+    }
+
+    ensureImageTranslationStyles();
+    target.targetLanguage = targetLanguage || target.targetLanguage || 'English';
+    target.progressTitle = 'Preparing frame';
+    target.progressDetail = 'Capturing visible video frame';
+
+    const video = resolveCurrentVideoFrameTranslationElement(target);
+    if (!video) {
+      return { ok: false, error: 'Could not find the selected video.' };
+    }
+
+    target.video = video;
+    const { clipped } = getClippedImageRect(video);
+    if (clipped.width < 80 || clipped.height < 45) {
+      return { ok: false, error: 'The selected video is not visible enough to capture.' };
+    }
+
+    target.rect = clipped;
+    document.documentElement.classList.add('ugt-video-frame-capturing');
+    target.capturePrepared = true;
+
+    if (target.captureCleanupTimer) {
+      clearTimeout(target.captureCleanupTimer);
+    }
+    target.captureCleanupTimer = setTimeout(() => restoreVideoFrameCaptureUi(target), 8000);
+
+    await waitForVideoFrameCaptureLayout();
+    return { ok: true, prepared: true };
+  }
+
+  async function captureVideoFrameForTranslation(requestId, screenshotDataUrl, targetLanguage, phase = '') {
+    const target = imageTranslationTargets.get(requestId);
+    if (!target || target.kind !== 'video-frame') {
+      return { ok: false, error: 'Video frame translation target was lost.' };
+    }
+
+    if (phase === 'prepare' || !screenshotDataUrl) {
+      return prepareVideoFrameCapture(requestId, targetLanguage);
+    }
+
+    try {
+      const screenshot = await loadImageElement(screenshotDataUrl);
+      const video = resolveCurrentVideoFrameTranslationElement(target);
+      if (!video) {
+        return { ok: false, error: 'Could not find the selected video.' };
+      }
+
+      target.video = video;
+      const { clipped } = getClippedImageRect(video);
+      if (clipped.width < 80 || clipped.height < 45) {
+        return { ok: false, error: 'The selected video is not visible enough to capture.' };
+      }
+
+      target.rect = clipped;
+      const scaleX = screenshot.naturalWidth / window.innerWidth;
+      const scaleY = screenshot.naturalHeight / window.innerHeight;
+      const sx = Math.max(0, Math.round(clipped.left * scaleX));
+      const sy = Math.max(0, Math.round(clipped.top * scaleY));
+      const sw = Math.max(1, Math.round(clipped.width * scaleX));
+      const sh = Math.max(1, Math.round(clipped.height * scaleY));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = sw;
+      canvas.height = sh;
+      const context = canvas.getContext('2d');
+      context.drawImage(screenshot, sx, sy, sw, sh, 0, 0, sw, sh);
+
+      const imageDataUrl = canvas.toDataURL('image/png');
+      const byteLength = estimateImageTranslationDataUrlBytes(imageDataUrl);
+
+      target.wasPausedAtCapture = video.paused;
+      target.pausedForTranslation = false;
+      if (!video.paused && !video.ended) {
+        video.pause();
+        target.pausedForTranslation = true;
+      }
+
+      updateImageTranslationProgress(requestId, {
+        targetLanguage,
+        title: 'Preparing frame',
+        detail: `Video frame ready (${formatImageTranslationBytes(byteLength)})`
+      });
+
+      return {
+        ok: true,
+        imageDataUrl,
+        width: sw,
+        height: sh,
+        byteLength,
+        captureSource: 'visible_video_frame'
+      };
+    } finally {
+      restoreVideoFrameCaptureUi(target);
+    }
   }
 
   function scoreImageTranslationCandidate(image, target) {
@@ -3038,6 +3384,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M16 16l4 4"></path><path d="M10.5 7.5v6"></path><path d="M7.5 10.5h6"></path></svg>';
     }
 
+    if (name === 'close') {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>';
+    }
+
     return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a3 3 0 0 1 3-3h15"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a3 3 0 0 1-3 3H3"></path></svg>';
   }
 
@@ -3051,20 +3401,131 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return button;
   }
 
+  function updateVideoFrameTranslationResultPosition(target, clipped = null) {
+    if (!target?.resultOverlay) return;
+
+    const video = resolveCurrentVideoFrameTranslationElement(target);
+    if (!video) {
+      target.resultOverlay.style.display = 'none';
+      return;
+    }
+
+    target.video = video;
+    const nextClipped = clipped || getClippedImageRect(video).clipped;
+    if (nextClipped.width < 80 || nextClipped.height < 45) {
+      target.resultOverlay.style.display = 'none';
+      return;
+    }
+
+    target.rect = nextClipped;
+    target.resultOverlay.style.display = target.showingTranslatedImage ? '' : 'none';
+    target.resultOverlay.style.left = `${nextClipped.left}px`;
+    target.resultOverlay.style.top = `${nextClipped.top}px`;
+    target.resultOverlay.style.width = `${nextClipped.width}px`;
+    target.resultOverlay.style.height = `${nextClipped.height}px`;
+  }
+
+  function applyTranslatedVideoFrameToCurrentTarget(target, imageDataUrl) {
+    const video = resolveCurrentVideoFrameTranslationElement(target);
+    if (!video) return false;
+
+    const { clipped } = getClippedImageRect(video);
+    if (clipped.width < 80 || clipped.height < 45) return false;
+
+    ensureImageTranslationStyles();
+    target.video = video;
+    target.translatedImageDataUrl = imageDataUrl;
+    target.showingTranslatedImage = true;
+
+    if (!target.resultOverlay) {
+      const resultOverlay = document.createElement('div');
+      resultOverlay.className = 'ugt-video-frame-translation-result';
+
+      const image = document.createElement('img');
+      image.alt = 'Translated video frame';
+      resultOverlay.appendChild(image);
+      document.documentElement.appendChild(resultOverlay);
+      target.resultOverlay = resultOverlay;
+    }
+
+    const image = target.resultOverlay.querySelector('img');
+    if (image) {
+      image.src = imageDataUrl;
+    }
+
+    updateVideoFrameTranslationResultPosition(target, clipped);
+    updateImageTranslationActionsState(target);
+    return true;
+  }
+
+  function setVideoFrameTranslationVisibility(target, visible) {
+    if (!target?.translatedImageDataUrl) return false;
+    target.showingTranslatedImage = visible;
+    updateVideoFrameTranslationResultPosition(target);
+    updateImageTranslationActionsState(target);
+    return true;
+  }
+
+  function cleanupVideoFrameTranslationTarget(target, options = {}) {
+    if (!target) return;
+
+    restoreVideoFrameCaptureUi(target);
+    removeImageTranslationActions(target);
+
+    if (target.resultOverlay) {
+      target.resultOverlay.remove();
+      target.resultOverlay = null;
+    }
+
+    const video = resolveCurrentVideoFrameTranslationElement(target);
+    if (video && target.originalStyle) {
+      video.style.filter = target.originalStyle.filter || '';
+      video.style.opacity = target.originalStyle.opacity || '';
+    }
+
+    if (options.resume && target.pausedForTranslation && video?.paused && !video.ended) {
+      const playResult = video.play();
+      if (playResult?.catch) {
+        playResult.catch(() => {});
+      }
+    }
+    target.pausedForTranslation = false;
+  }
+
+  function closeVideoFrameTranslation(requestId, target) {
+    hideImageTranslationOverlay(requestId, true);
+    cleanupVideoFrameTranslationTarget(target, { resume: true });
+    imageTranslationTargets.delete(requestId);
+  }
+
   function updateImageTranslationActionsPosition(target) {
     if (!target?.actionsOverlay) return;
 
-    const image = resolveCurrentImageTranslationElement(target);
-    if (!image) {
+    const visualElement = target.kind === 'video-frame'
+      ? resolveCurrentVideoFrameTranslationElement(target)
+      : resolveCurrentImageTranslationElement(target);
+    if (!visualElement) {
       target.actionsOverlay.style.display = 'none';
       return;
     }
 
-    target.image = image;
-    const { clipped } = getClippedImageRect(image);
+    if (target.kind === 'video-frame') {
+      target.video = visualElement;
+    } else {
+      target.image = visualElement;
+    }
+
+    const { clipped } = getClippedImageRect(visualElement);
     if (clipped.width < 8 || clipped.height < 8) {
       target.actionsOverlay.style.display = 'none';
+      if (target.kind === 'video-frame') {
+        updateVideoFrameTranslationResultPosition(target, clipped);
+      }
       return;
+    }
+
+    if (target.kind === 'video-frame') {
+      updateVideoFrameTranslationResultPosition(target, clipped);
     }
 
     const overlayHeight = target.actionsOverlay.offsetHeight || 26;
@@ -3084,7 +3545,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     const toggleButton = target?.actionsOverlay?.querySelector('[data-ugt-image-action="toggle"]');
     if (!toggleButton) return;
 
-    const title = target.showingTranslatedImage ? 'Show original image' : 'Show translated image';
+    const title = target.kind === 'video-frame'
+      ? (target.showingTranslatedImage ? 'Show video frame' : 'Show translated frame')
+      : (target.showingTranslatedImage ? 'Show original image' : 'Show translated image');
     toggleButton.title = title;
     toggleButton.setAttribute('aria-label', title);
     toggleButton.dataset.state = target.showingTranslatedImage ? 'translated' : 'original';
@@ -3133,6 +3596,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   function toggleImageTranslationState(target) {
     if (!target?.translatedImageDataUrl) return;
 
+    if (target.kind === 'video-frame') {
+      const applied = setVideoFrameTranslationVisibility(target, !target.showingTranslatedImage);
+      if (!applied) {
+        showCustomError('Could not switch the video frame display.', 'IMAGE_TRANSLATION');
+        return;
+      }
+      updateImageTranslationActionsPosition(target);
+      return;
+    }
+
     const applied = target.showingTranslatedImage
       ? applyOriginalImageToElement(resolveCurrentImageTranslationElement(target), target)
       : applyTranslatedImageToElement(resolveCurrentImageTranslationElement(target), target.translatedImageDataUrl, target);
@@ -3157,7 +3630,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       actions.className = 'ugt-image-translation-actions';
       actions.dataset.expanded = 'false';
 
-      const triggerButton = createImageTranslationActionButton('menu', 'Image translation actions');
+      const triggerTitle = target.kind === 'video-frame' ? 'Video frame translation actions' : 'Image translation actions';
+      const triggerButton = createImageTranslationActionButton('menu', triggerTitle);
       triggerButton.classList.add('ugt-image-translation-action-trigger');
       triggerButton.dataset.ugtImageAction = 'menu';
       triggerButton.addEventListener('click', (event) => {
@@ -3167,7 +3641,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         updateImageTranslationActionsPosition(target);
       });
 
-      const openButton = createImageTranslationActionButton('open', 'Open translated image');
+      const openButton = createImageTranslationActionButton('open', target.kind === 'video-frame' ? 'Open translated frame' : 'Open translated image');
       openButton.dataset.ugtImageAction = 'open';
       openButton.addEventListener('click', (event) => {
         event.preventDefault();
@@ -3176,7 +3650,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         openImageTranslationNativeImage(target);
       });
 
-      const toggleButton = createImageTranslationActionButton('toggle', 'Show original image');
+      const toggleButton = createImageTranslationActionButton('toggle', target.kind === 'video-frame' ? 'Show video frame' : 'Show original image');
       toggleButton.dataset.ugtImageAction = 'toggle';
       toggleButton.addEventListener('click', (event) => {
         event.preventDefault();
@@ -3186,6 +3660,19 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       });
 
       actions.append(triggerButton, openButton, toggleButton);
+
+      if (target.kind === 'video-frame') {
+        const closeButton = createImageTranslationActionButton('close', 'Close translated frame');
+        closeButton.dataset.ugtImageAction = 'close';
+        closeButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          actions.dataset.expanded = 'false';
+          closeVideoFrameTranslation(requestId, target);
+        });
+        actions.append(closeButton);
+      }
+
       document.documentElement.appendChild(actions);
       target.actionsOverlay = actions;
       target.actionsTimer = setInterval(() => updateImageTranslationActionsPosition(target), 500);
@@ -3200,19 +3687,24 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     if (!target) return { ok: false, error: 'Image translation target was lost.' };
 
     target.translatedImageDataUrl = imageDataUrl;
-    const applied = applyTranslatedImageToCurrentTarget(target, imageDataUrl);
+    const applied = target.kind === 'video-frame'
+      ? applyTranslatedVideoFrameToCurrentTarget(target, imageDataUrl)
+      : applyTranslatedImageToCurrentTarget(target, imageDataUrl);
     if (!applied) {
-      return { ok: false, error: 'Could not find a visible image element to replace.' };
+      return { ok: false, error: target.kind === 'video-frame' ? 'Could not find a visible video frame to overlay.' : 'Could not find a visible image element to replace.' };
     }
 
-    keepImageTranslationStateApplied(target);
+    if (target.kind !== 'video-frame') {
+      keepImageTranslationStateApplied(target);
+    }
 
     if (target.overlay) {
       target.overlay.classList.add('ugt-image-translation-done');
       const card = target.overlay.querySelector('.ugt-image-translation-card');
       if (card) {
         const seconds = elapsedMs ? Math.round(elapsedMs / 1000) : Math.round((Date.now() - target.startedAt) / 1000);
-        card.innerHTML = `<div class="ugt-image-translation-title">Image translated</div><div class="ugt-image-translation-subtext">${seconds}s</div>`;
+        const title = target.kind === 'video-frame' ? 'Video frame translated' : 'Image translated';
+        card.innerHTML = `<div class="ugt-image-translation-title">${title}</div><div class="ugt-image-translation-subtext">${seconds}s</div>`;
       }
       setTimeout(() => {
         hideImageTranslationOverlay(requestId, true);
@@ -3234,12 +3726,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
 
     console.warn('UGT image translation failed:', error || 'Unknown error');
+    if (target.kind === 'video-frame') {
+      restoreVideoFrameCaptureUi(target);
+    }
 
     if (target.overlay) {
       target.overlay.classList.add('ugt-image-translation-error');
       const card = target.overlay.querySelector('.ugt-image-translation-card');
       if (card) {
-        card.innerHTML = `<div class="ugt-image-translation-title">Image translation failed</div><div class="ugt-image-translation-subtext">${escapeImageTranslationText(error || 'Unknown error')}</div>`;
+        const title = target.kind === 'video-frame' ? 'Video frame translation failed' : 'Image translation failed';
+        card.innerHTML = `<div class="ugt-image-translation-title">${title}</div><div class="ugt-image-translation-subtext">${escapeImageTranslationText(error || 'Unknown error')}</div>`;
       }
       setTimeout(() => hideImageTranslationOverlay(requestId), 9000);
     } else {
@@ -3253,6 +3749,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     if (image) {
       lastContextImage = {
         image,
+        time: Date.now()
+      };
+    }
+
+    const point = { clientX: event.clientX, clientY: event.clientY };
+    const video = getContextVideoElement(event.target, point);
+    if (video) {
+      lastContextVideo = {
+        video,
+        point,
         time: Date.now()
       };
     }
@@ -3292,6 +3798,16 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return true;
     } else if (msg.type === "UGT_IMAGE_TRANSLATION_CAPTURE") {
       captureImageForTranslation(msg.requestId, msg.screenshotDataUrl, msg.targetLanguage)
+        .then(sendResponse)
+        .catch((error) => {
+          sendResponse({ ok: false, error: error.message || String(error) });
+        });
+      return true;
+    } else if (msg.type === "UGT_VIDEO_FRAME_TRANSLATION_GET_TARGET") {
+      sendResponse(getVideoFrameTranslationTarget(msg.srcUrl, msg.requestId, { mediaType: msg.mediaType || '' }));
+      return true;
+    } else if (msg.type === "UGT_VIDEO_FRAME_TRANSLATION_CAPTURE") {
+      captureVideoFrameForTranslation(msg.requestId, msg.screenshotDataUrl, msg.targetLanguage, msg.phase || '')
         .then(sendResponse)
         .catch((error) => {
           sendResponse({ ok: false, error: error.message || String(error) });

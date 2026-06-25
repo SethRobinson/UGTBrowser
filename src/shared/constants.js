@@ -94,6 +94,7 @@ export const CONTEXT_MENU_PARENT = "ugtbrowser_parent";
 export const CONTEXT_MENU_TRANSLATE = "ugtbrowser_translate";
 export const CONTEXT_MENU_TRANSLATE_SIMPLE = "ugtbrowser_translate_simple";
 export const CONTEXT_MENU_TRANSLATE_IMAGE = "ugtbrowser_translate_image";
+export const CONTEXT_MENU_TRANSLATE_VIDEO_FRAME = "ugtbrowser_translate_video_frame";
 export const CONTEXT_MENU_SPEAK = "ugtbrowser_speak";
 export const CONTEXT_MENU_LESSON = "ugtbrowser_lesson";
 export const CONTEXT_MENU_ASK = "ugtbrowser_ask";

@@ -5,6 +5,7 @@ import {
   CONTEXT_MENU_TRANSLATE,
   CONTEXT_MENU_TRANSLATE_SIMPLE,
   CONTEXT_MENU_TRANSLATE_IMAGE,
+  CONTEXT_MENU_TRANSLATE_VIDEO_FRAME,
   CONTEXT_MENU_SPEAK,
   CONTEXT_MENU_LESSON,
   CONTEXT_MENU_ASK,
@@ -288,6 +289,17 @@ function getImageTranslationTargetLanguage(data) {
 function buildImageTranslationPrompt(targetLanguage) {
   return [
     `Translate all visible source-language text in this image to ${targetLanguage} directly in the image.`,
+    'Preserve the original layout, borders, spacing, alignment, typography hierarchy, photos, graphics, and overall visual appearance.',
+    'Favor literal translation over paraphrase. Preserve reading order, dates, names, brands, quoted titles, and unusual phrasing as much as possible.',
+    'Resize translated text as needed to fit the original text regions.',
+    'Do not add subtitles, annotations, callouts, bounding boxes, JSON, coordinates, or side-by-side translations.',
+    'Do not leave untranslated source-language text visible unless it is a proper noun, brand name, or intentionally untranslated title.'
+  ].join(' ');
+}
+
+function buildVideoFrameTranslationPrompt(targetLanguage) {
+  return [
+    `Translate all visible source-language text in this current video frame to ${targetLanguage} directly in the frame image.`,
     'Preserve the original layout, borders, spacing, alignment, typography hierarchy, photos, graphics, and overall visual appearance.',
     'Favor literal translation over paraphrase. Preserve reading order, dates, names, brands, quoted titles, and unusual phrasing as much as possible.',
     'Resize translated text as needed to fit the original text regions.',
@@ -1130,6 +1142,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await handleImageTranslateMenuClick(info, tab);
     return;
   }
+
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE_VIDEO_FRAME) {
+    await handleVideoFrameTranslateMenuClick(info, tab);
+    return;
+  }
   
   if (info.menuItemId === CONTEXT_MENU_SPEAK) {
     await handleSpeakMenuClick(info, tab);
@@ -1333,6 +1350,154 @@ async function handleImageTranslateMenuClick(info, tab) {
         iconUrl: 'icon128.png',
         title: 'UGTBrowser',
         message: `Image translation error: ${error.message || String(error)}`,
+        priority: 1
+      }, (notificationId) => {
+        setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+      });
+    }
+  }
+}
+
+async function handleVideoFrameTranslateMenuClick(info, tab) {
+  const frameId = info.frameId ?? 0;
+  const requestId = `vid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+  if (isRestrictedUrl(tab.url)) {
+    showRestrictedPageWarning(tab.url, 'translate video frame');
+    return;
+  }
+
+  try {
+    const data = await chrome.storage.local.get([
+      'settings',
+      'languageMode',
+      'targetLanguage',
+      'customLanguage',
+      'openaiApiKey'
+    ]);
+
+    if (!data.openaiApiKey) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "UGT_SHOW_ERROR",
+        message: "OpenAI API key is not configured. Please add your API key in UGTBrowser Settings.",
+        errorContext: "API_KEY_ISSUE"
+      }, { frameId });
+      return;
+    }
+
+    const targetLanguage = getImageTranslationTargetLanguage(data);
+    const target = await sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_VIDEO_FRAME_TRANSLATION_GET_TARGET",
+      requestId,
+      srcUrl: info.srcUrl || '',
+      mediaType: info.mediaType || ''
+    });
+
+    if (!target?.ok) {
+      throw new Error(target?.error || 'Could not identify a visible video frame');
+    }
+
+    if (!target.isTopFrame) {
+      throw new Error('Video frame translation currently supports videos in the main page frame.');
+    }
+
+    const prepared = await sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_VIDEO_FRAME_TRANSLATION_CAPTURE",
+      requestId,
+      targetLanguage,
+      phase: 'prepare'
+    });
+
+    if (!prepared?.ok) {
+      throw new Error(prepared?.error || 'Could not prepare the video frame capture');
+    }
+
+    const screenshotDataUrl = await captureVisibleTab(tab.windowId);
+    const capture = await sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_VIDEO_FRAME_TRANSLATION_CAPTURE",
+      requestId,
+      screenshotDataUrl,
+      targetLanguage
+    });
+
+    if (!capture?.ok || !capture.imageDataUrl) {
+      throw new Error(capture?.error || 'Could not capture the current video frame');
+    }
+
+    const imageByteLength = capture.byteLength || estimateDataUrlByteLength(capture.imageDataUrl);
+    const size = chooseImageEditSize(capture.width, capture.height);
+    const startedAt = Date.now();
+
+    await sendImageTranslationProgress(tab.id, frameId, requestId, {
+      targetLanguage,
+      title: 'Sending video frame',
+      detail: 'Starting upload',
+      loadedBytes: 0,
+      totalBytes: imageByteLength
+    });
+
+    setImageTranslationDebugRequest({
+      requestId,
+      kind: 'video-frame',
+      status: 'started',
+      tabId: tab.id,
+      frameId,
+      targetLanguage,
+      capturedWidth: capture.width,
+      capturedHeight: capture.height,
+      captureSource: capture.captureSource || 'visible_video_frame',
+      imageByteLength,
+      warning: capture.warning,
+      requestedSize: size,
+      model: 'gpt-image-2',
+      quality: 'low',
+      outputFormat: 'png'
+    });
+
+    await startImageEditViaOffscreen({
+      requestId,
+      tabId: tab.id,
+      frameId,
+      imageDataUrl: capture.imageDataUrl,
+      apiKey: data.openaiApiKey,
+      prompt: buildVideoFrameTranslationPrompt(targetLanguage),
+      model: 'gpt-image-2',
+      quality: 'low',
+      size,
+      outputFormat: 'png',
+      imageByteLength,
+      captureSource: capture.captureSource || 'visible_video_frame',
+      startedAt
+    });
+
+    setImageTranslationDebugResponse({
+      requestId,
+      kind: 'video-frame',
+      status: 'offscreen_started',
+      elapsedMs: Date.now() - startedAt,
+      requestedSize: size
+    });
+  } catch (error) {
+    console.error("Video frame translation error:", error);
+    setImageTranslationDebugResponse({
+      requestId,
+      kind: 'video-frame',
+      status: 'error',
+      error: error.message || String(error)
+    });
+
+    try {
+      await sendMessageToFrame(tab.id, frameId, {
+        type: "UGT_IMAGE_TRANSLATION_ERROR",
+        requestId,
+        error: error.message || String(error)
+      });
+    } catch (sendError) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon128.png',
+        title: 'UGTBrowser',
+        message: `Video frame translation error: ${error.message || String(error)}`,
         priority: 1
       }, (notificationId) => {
         setTimeout(() => chrome.notifications.clear(notificationId), 5000);
