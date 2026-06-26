@@ -82,7 +82,6 @@ const toggleDebugBtn = document.getElementById('toggleDebugBtn');
 const llmDebugContent = document.getElementById('llmDebugContent');
 const refreshLLMDataBtn = document.getElementById('refreshLLMDataBtn');
 const saveBtn = document.getElementById('saveBtn');
-const saveImagePromptBtn = document.getElementById('saveImagePromptBtn');
 const resetPromptBtn = document.getElementById('resetPromptBtn');
 
 // TTS Elements
@@ -240,9 +239,6 @@ function initializeOptionsPage() {
   });
   customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
   saveBtn.addEventListener('click', saveOptions);
-  if (saveImagePromptBtn) {
-    saveImagePromptBtn.addEventListener('click', saveOptions);
-  }
   resetPromptBtn.addEventListener('click', resetPromptToDefault);
   if (resetImagePromptBtn) {
     resetImagePromptBtn.addEventListener('click', resetImagePromptToDefault);
