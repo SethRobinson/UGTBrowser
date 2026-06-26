@@ -66,6 +66,7 @@ Current image edit defaults:
 - Quality: `low`
 - Output format: `png`
 - Size: chosen dynamically by `chooseImageEditSize` near the minimum legal pixel budget while preserving the clicked image aspect ratio.
+- Prompt constraints explicitly preserve numeric values, prices, currency units/symbols, measurements, and quantities, and tell the model not to overlap translated text with decorative rules, borders, icons, photos, hands, or other non-text graphics.
 
 Known limitations:
 
@@ -126,6 +127,34 @@ npm run package
 ```
 
 The package command writes a zip under `dist/`.
+
+## README Screenshot Refresh Workflow
+
+Most README media is generated from deterministic local fixtures so screenshots can be refreshed without exposing provider keys. The image-translation animation is the exception: it must be captured from a real UGTBrowser image translation run so the README never shows a fake translated image. The current capture scaffolding lives under ignored `local/readme-capture/` in this workspace. If the folder is missing in a fresh checkout, recreate equivalent fixtures rather than using random live sites.
+
+Current README assets:
+
+- `media/ugtbrowser_context_menu.png`: simulated Chrome right-click menu over highlighted Japanese text. It should show `UGTBrowser Language Tools` highlighted and the submenu options clearly.
+- `media/ugtbrowser_image_translation.png`: high-color APNG animated in-place image translation flow. Use one fixed crop for every frame; frame-to-frame x/y drift looks bad and should be treated as a failed capture.
+- `media/ugtbrowser_image_translation.gif`: palette-limited fallback for hosts that do not animate APNG.
+- `media/ugtbrowser_translation_notes.png`: inline text translation with cultural notes and follow-up chat affordance.
+- `media/ugtbrowser_settings.png`: settings page focused on language, provider/model, thinking, and API key controls.
+
+Recommended process when asked to "take new screenshots":
+
+1. Update or recreate the local fixtures in `local/readme-capture/` to match current UI and copy. Keep fixtures deterministic and representative for normal screenshots.
+2. For image-translation demos, generate a fresh realistic source photo with an image-generation model and put the Japanese text directly in the generation prompt. Do not manually add, copy, warp, or perspective-map source or translated text afterward. The current example uses a street/cafe photo with an angled sign, shirt text, and an overhead banner so the result demonstrates in-situ text replacement on mixed photo content.
+3. The README image-translation APNG/GIF must use the real extension workflow, not a manually overlaid translated frame. Open the real capture fixture in the Dalen Chrome profile, right-click the source image, choose `UGTBrowser Language Tools` -> `Translate image to English`, wait for the actual OpenAI image-edit result, and build the animation from fixed-crop screenshots of the real original/progress/final states.
+4. Serve the repo locally with `python -m http.server 8765 --bind 127.0.0.1` from the repo root.
+5. Capture fixtures in Chrome. For normal page fixtures, browser automation screenshots are fine. For browser-level context-menu imagery, use a deterministic HTML simulation and Chrome headless screenshot, e.g.:
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu --hide-scrollbars --window-size=1100,620 --screenshot="local\readme-capture\frames-v2\context-menu-full.png" "http://127.0.0.1:8765/local/readme-capture/context-menu-fixture.html"
+```
+
+6. Crop and assemble final media with Pillow. Prefer APNG for photographic animations because it keeps true-color PNG frames; keep the GIF only as a fallback. Crop every source frame with the exact same pixel box before resizing/encoding. Extract the first and last animation frames afterward to confirm alignment.
+7. Inspect every final asset visually with `view_image` before editing README. Check for clipped menu labels, hidden submenu options, stray black bars, text overflow, bad machine edits such as currency conversion, text colliding with graphics, and animation drift.
+8. Update README references and run `rg` checks so there are no stale references to removed media names.
 
 ## Agent Maintenance Rule
 

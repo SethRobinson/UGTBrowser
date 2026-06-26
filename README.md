@@ -8,7 +8,7 @@
 
 </div>
 
-A Chrome extension that translates or speaks highlighted text using your own LLM API keys (OpenAI, Anthropic, Google, Elevenlabs).
+A Chrome extension that translates highlighted text, images, and video frames, and can speak text aloud using your own AI provider keys (OpenAI, Anthropic, Google, ElevenLabs).
 
 ## AI Agent Instructions
 
@@ -28,24 +28,30 @@ Useful if the Chrome Web Store hasn't updated to the latest version yet:
 ## Features
 
 * **Translate** - High-quality AI translation that streams in-place and explains cultural context
+* **Image Translation** - Right-click webpage images and replace them with translated PNG results. Experimental, and currently takes about 30-40 seconds per image.
+* **Video Frame Translation** - Translate a still frame from a visible video without capturing the stream
 * **Text-to-Speech** - Have text read aloud via ElevenLabs or Google Cloud TTS
 * **Create Lesson** - Generate detailed language breakdowns with readings, meanings, and grammar notes
 * **Follow-up Chat** - Ask questions about the translated content
 
 <div align="center">
-  <a href="media/ugtbrowser_1.png"><img src="media/ugtbrowser_1.png" alt="Context menu and follow-up chat" width="400"/></a>
-  <a href="media/ugtbrowser_4.png"><img src="media/ugtbrowser_4.png" alt="Create Lesson feature" width="400"/></a>
+  <a href="media/ugtbrowser_context_menu.png"><img src="media/ugtbrowser_context_menu.png" alt="UGTBrowser right-click menu options for selected Japanese text" width="760"/></a>
 </div>
+
 <div align="center">
-  <a href="media/ugtbrowser_2.png"><img src="media/ugtbrowser_2.png" alt="Translation settings" width="400"/></a>
-  <a href="media/ugtbrowser_3.png"><img src="media/ugtbrowser_3.png" alt="Text-to-speech settings" width="400"/></a>
+  <a href="media/ugtbrowser_image_translation.png"><img src="media/ugtbrowser_image_translation.png" alt="UGTBrowser translating an image in-place" width="760"/></a>
+</div>
+
+<div align="center">
+  <a href="media/ugtbrowser_translation_notes.png"><img src="media/ugtbrowser_translation_notes.png" alt="Inline translation with cultural notes and follow-up chat" width="400"/></a>
+  <a href="media/ugtbrowser_settings.png"><img src="media/ugtbrowser_settings.png" alt="UGTBrowser settings page" width="400"/></a>
 </div>
 
 ## How to Use
 
-1. Highlight text on any webpage
-2. Right-click and select from the UGTBrowser menu: Translate, Speak, or Create Lesson
-3. Use the follow-up chat to ask questions about the content
+1. Highlight text, right-click an image, or right-click a visible video frame on any webpage
+2. Select the matching action from the UGTBrowser menu
+3. Use the follow-up chat, preview, or flip controls as needed
 
 ## Why tho
 
@@ -65,7 +71,11 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ## Version History
 
-**v2.0.0** (Current)
+**v2.1.0** (Current)
+* Added image translation with in-place replacement, preview, and original/translated flip controls
+* Added still video-frame translation overlays
+
+**v2.0.0**
 * Added Text-to-Speech support (ElevenLabs and Google Cloud TTS)
 * Added Create Lesson feature for detailed language breakdowns
 * Added Follow-up Chat to ask questions about translated content
