@@ -4,6 +4,9 @@
 // are also defined in src/shared/constants.js. Keep them synchronized.
 
 document.addEventListener('DOMContentLoaded', initializeOptionsPage);
+document.addEventListener('DOMContentLoaded', initializeTranslationPromptControls);
+document.addEventListener('DOMContentLoaded', initializeImagePromptOptions);
+document.addEventListener('DOMContentLoaded', initializeCustomLanguageHelp);
 
 // --- Tab Navigation ---
 const tabButtons = document.querySelectorAll('.tab-button');
@@ -120,6 +123,51 @@ const helpModal = document.getElementById('helpModal');
 const helpModalTitle = document.getElementById('helpModalTitle');
 const helpModalBody = document.getElementById('helpModalBody');
 const modalCloseBtn = document.querySelector('.modal-close-btn');
+
+const customLanguageHelpContent = {
+  title: "Custom Target Language",
+  body: "<p>Enter any custom target language prompt. This allows for creative and flexible translation requests.</p>" +
+        "<p><strong>Examples:</strong></p>" +
+        "<ul>" +
+        "<li>'English, but everyone is talking like a pirate'</li>" +
+        "<li>'Piglatin'</li>" +
+        "<li>'Japanese, but with furigana on all the kanji'</li>" +
+        "<li>'Translate to Spanish, and make it rhyme if possible.'</li>" +
+        "</ul>" +
+        "<p>Be creative! The LLM will do its best to follow your custom instructions for the target language.</p>"
+};
+
+const defaultCreativeTaskText = 'After translating, explain any cultural nuances found in the original text.';
+
+const standalonePromptHelpContent = {
+  mainPromptHelpBtn: {
+    title: "Prompt Template Guide",
+    body: "<p>The prompt template defines how UGTBrowser instructs the LLM to perform translations. Advanced users can customize this.</p>" +
+          "<p><strong>Key Placeholders:</strong></p>" +
+          "<ul>" +
+          "<li><code>{{text}}</code>: This is where the actual text segments selected for translation will be inserted. The content script typically formats this as multiple lines, each with a unique ID.</li>" +
+          "<li><code>{{target}}</code>: This placeholder will be replaced with the target language you've selected.</li>" +
+          "<li><code>{{creative_task_placeholder}}</code>: If you've defined an Optional Creative Task, it will be inserted here.</li>" +
+          "</ul>" +
+          "<p>Ensure your prompt asks the LLM to wrap each translated segment in matching <code>&lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;</code> tags.</p>"
+  },
+  lessonPromptHelpBtn: {
+    title: "Lesson Prompt Template",
+    body: "<p>This prompt is used when you highlight text on a webpage and select <strong>Create Lesson</strong> from the right-click context menu.</p>" +
+          "<p><code>{0}</code> will be replaced with the selected text.</p>"
+  },
+  creativeTaskHelpBtn: {
+    title: "Optional Creative Task",
+    body: "<p>Define an optional creative task for the LLM to perform in addition to translation.</p>" +
+          "<p>Examples include explaining cultural nuances, summarizing the translated text, or listing proper nouns.</p>"
+  },
+  imagePromptHelpBtn: {
+    title: "Image Translation Prompt",
+    body: "<p>This prompt is sent to OpenAI with the captured image when you right-click an image and choose <strong>Translate image</strong>.</p>" +
+          "<p><code>{{target}}</code> is replaced with the selected target language or custom target language prompt.</p>" +
+          "<p>Customizations are stored in Chrome extension storage and are not written to project files.</p>"
+  }
+};
 
 // --- Configuration Data ---
 const noTemperatureModels = [
@@ -239,10 +287,6 @@ function initializeOptionsPage() {
   });
   customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
   saveBtn.addEventListener('click', saveOptions);
-  resetPromptBtn.addEventListener('click', resetPromptToDefault);
-  if (resetImagePromptBtn) {
-    resetImagePromptBtn.addEventListener('click', resetImagePromptToDefault);
-  }
   
   if (refreshLLMDataBtn) {
     refreshLLMDataBtn.addEventListener('click', fetchLastLLMData);
@@ -307,18 +351,6 @@ function initializeOptionsPage() {
 
   // --- Help Modal Logic ---
   const helpContentMap = {
-    customHelp: {
-      title: "Custom Target Language",
-      body: "<p>Enter any custom target language prompt. This allows for creative and flexible translation requests.</p>" +
-            "<p><strong>Examples:</strong></p>" +
-            "<ul>" +
-            "<li>'English, but everyone is talking like a pirate'</li>" +
-            "<li>'Piglatin'</li>" +
-            "<li>'Japanese, but with furigana on all the kanji'</li>" +
-            "<li>'Translate to Spanish, and make it rhyme if possible.'</li>" +
-            "</ul>" +
-            "<p>Be creative! The LLM will do its best to follow your custom instructions for the target language.</p>"
-    },
     elevenlabsHelpBtn: {
       title: "How to Get an ElevenLabs API Key",
       body: "<p>ElevenLabs provides ultra-realistic AI voice synthesis. Follow these steps to get your API key:</p>" +
@@ -344,81 +376,12 @@ function initializeOptionsPage() {
             "</ol>" +
             "<p><strong>Direct link to enable API:</strong> <a href='https://console.cloud.google.com/apis/library/texttospeech.googleapis.com' target='_blank' rel='noopener'>Enable Text-to-Speech API</a></p>" +
             "<p><strong>Pricing:</strong> Google Cloud offers $300 free credits for new users. Standard usage costs apply after that. Studio voices are premium-priced.</p>"
-    },
-    creativeTaskHelpBtn: {
-      title: "Optional Creative Task",
-      body: "<p>Define an optional creative task for the LLM to perform <em>in addition</em> to the primary translation. This task will be incorporated into the main prompt sent to the LLM.</p>" +
-            "<p><strong>Examples:</strong></p>" +
-            "<ul>" +
-            "<li>'Make the translation sound like a pirate.'</li>" +
-            "<li>'Summarize the text in one sentence after translating.'</li>" +
-            "<li>'After translating, explain any cultural nuances found in the original text.'</li>" +
-            "<li>'After translating, list any proper nouns found in the text.'</li>" +
-            "</ul>" +
-            "<p>If left blank, no additional creative task will be included.</p>"
-    },
-    mainPromptHelpBtn: {
-      title: "Prompt Template Guide",
-      body: "<p>The prompt template defines how UGTBrowser instructs the LLM to perform translations. Advanced users can customize this.</p>" +
-            "<p><strong>Key Placeholders:</strong></p>" +
-            "<ul>" +
-            "<li><code>{{text}}</code>: This is where the actual text segments selected for translation will be inserted. The content script typically formats this as multiple lines, each with a unique ID (e.g., <code>&lt;ugt_abc123&gt;Original text line 1&lt;/ugt_abc123&gt;</code>, <code>&lt;ugt_def456&gt;Original text line 2&lt;/ugt_def456&gt;</code>).</li>" +
-            "<li><code>{{target}}</code>: This placeholder will be replaced with the target language you've selected (e.g., 'Spanish', 'Japanese', or your custom language prompt).</li>" +
-            "<li><code>{{creative_task_placeholder}}</code>: If you've defined an 'Optional Creative Task', it will be formatted and inserted here. If no creative task is set, this placeholder will be replaced with an empty string.</li>" +
-            "</ul>" +
-            "<p><strong>Crucial Output Format:</strong></p>" +
-            "<p>Ensure your prompt clearly instructs the LLM to wrap <strong>each</strong> translated segment in <code>&lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;</code> tags, where 'ID' matches the ID of the corresponding input segment. This is essential for the extension to correctly process and display the translations.</p>" +
-            "<p><strong>Example Instruction for LLM:</strong></p>" +
-            "<p>'For each segment, use the provided ID and wrap your translation in tags like &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;. For example, if the input is \"&lt;ugt_abc123&gt;Original Text Segment&lt;/ugt_abc123&gt;\", you should output: \"&lt;ugt_abc123&gt;Translated Text Segment&lt;/ugt_abc123&gt;\".'</p>" +
-            "<p>You can also add instructions regarding tone, style, or specific formatting requirements. The default prompts provide good examples of how to structure these instructions.</p>"
-    },
-    imagePromptHelpBtn: {
-      title: "Image Translation Prompt",
-      body: "<p>This prompt is sent to OpenAI with the captured image when you right-click an image and choose <strong>Translate image</strong>.</p>" +
-            "<p><strong>Placeholder:</strong></p>" +
-            "<ul>" +
-            "<li><code>{{target}}</code>: Replaced with the selected target language or your custom target language prompt.</li>" +
-            "</ul>" +
-            "<p>Keep instructions focused on in-image text replacement, layout preservation, and numeric/currency preservation. Customizations are stored in Chrome extension storage and are not written to project files.</p>"
-    },
-    lessonPromptHelpBtn: {
-      title: "Lesson Prompt Template",
-      body: "<p>This prompt is used when you highlight text on a webpage and select <strong>\"Create Lesson\"</strong> from the right-click context menu.</p>" +
-            "<p><strong>How it works:</strong></p>" +
-            "<ul>" +
-            "<li>Select any text on a webpage (typically in a foreign language you're learning)</li>" +
-            "<li>Right-click and choose <strong>UGTBrowser Language Tools → Create Lesson</strong></li>" +
-            "<li>A detailed lesson will appear inline, similar to how translations are displayed</li>" +
-            "<li>You can ask follow-up questions using the chat interface</li>" +
-            "</ul>" +
-            "<p><strong>Placeholder:</strong></p>" +
-            "<ul>" +
-            "<li><code>{0}</code>: This will be replaced with the selected text</li>" +
-            "</ul>" +
-            "<p><strong>Customization Tips:</strong></p>" +
-            "<ul>" +
-            "<li>Tailor the prompt for your target language (Japanese, Spanish, etc.)</li>" +
-            "<li>Request specific content like grammar breakdowns, vocabulary lists, or cultural notes</li>" +
-            "<li>Ask for practice exercises, flashcards, or mnemonics</li>" +
-            "<li>Specify the format you prefer (tables, bullet points, etc.)</li>" +
-            "</ul>" +
-            "<p><strong>Example customizations:</strong></p>" +
-            "<ul>" +
-            "<li>\"Focus on JLPT N3 grammar patterns\"</li>" +
-            "<li>\"Include pitch accent notation for Japanese\"</li>" +
-            "<li>\"Provide Spanish conjugation tables\"</li>" +
-            "<li>\"Add example sentences with audio transcription hints\"</li>" +
-            "</ul>"
     }
   };
 
   function openHelpModal(contentKey) {
     const content = helpContentMap[contentKey];
-    if (content && helpModal && helpModalTitle && helpModalBody) {
-      helpModalTitle.textContent = content.title;
-      helpModalBody.innerHTML = content.body; // Use innerHTML as content includes HTML tags
-      helpModal.style.display = 'block';
-    }
+    openHelpModalContent(content);
   }
 
   function closeHelpModal() {
@@ -427,24 +390,6 @@ function initializeOptionsPage() {
     }
   }
 
-  if (customHelpSpan) {
-    customHelpSpan.addEventListener('click', () => openHelpModal('customHelp'));
-  }
-  if (mainPromptHelpBtn) {
-    mainPromptHelpBtn.addEventListener('click', () => openHelpModal('mainPromptHelpBtn'));
-  }
-  if (creativeTaskHelpBtn) {
-    creativeTaskHelpBtn.addEventListener('click', () => openHelpModal('creativeTaskHelpBtn'));
-  }
-  if (lessonPromptHelpBtn) {
-    lessonPromptHelpBtn.addEventListener('click', () => openHelpModal('lessonPromptHelpBtn'));
-  }
-  if (imagePromptHelpBtn) {
-    imagePromptHelpBtn.addEventListener('click', () => openHelpModal('imagePromptHelpBtn'));
-  }
-  if (resetLessonPromptBtn) {
-    resetLessonPromptBtn.addEventListener('click', resetLessonPromptToDefault);
-  }
   if (modalCloseBtn) {
     modalCloseBtn.addEventListener('click', closeHelpModal);
   }
@@ -461,6 +406,164 @@ function initializeOptionsPage() {
 }
 
 // --- Core Functions ---
+function openHelpModalContent(content) {
+  if (content && helpModal && helpModalTitle && helpModalBody) {
+    helpModalTitle.textContent = content.title;
+    helpModalBody.innerHTML = content.body;
+    helpModal.style.display = 'block';
+  }
+}
+
+function closeHelpModalElement() {
+  if (helpModal) {
+    helpModal.style.display = 'none';
+  }
+}
+
+function initializeCustomLanguageHelp() {
+  if (customHelpSpan) {
+    const openCustomLanguageHelp = (event) => {
+      event.preventDefault();
+      openHelpModalContent(customLanguageHelpContent);
+    };
+
+    customHelpSpan.addEventListener('click', openCustomLanguageHelp);
+    customHelpSpan.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        openCustomLanguageHelp(event);
+      }
+    });
+  }
+
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener('click', closeHelpModalElement);
+  }
+
+  window.addEventListener('click', (event) => {
+    if (event.target === helpModal) {
+      closeHelpModalElement();
+    }
+  });
+}
+
+function getSelectedPromptProvider() {
+  return providerSelect?.value || 'openai';
+}
+
+function getPromptTemplateOrDefault(value, provider = getSelectedPromptProvider()) {
+  return typeof value === 'string' && value.trim()
+    ? value
+    : (defaultPrompts[provider] || defaultPrompts.openai);
+}
+
+function getLessonPromptOrDefault(value) {
+  return typeof value === 'string' && value.trim()
+    ? value
+    : defaultLessonPrompt;
+}
+
+function getCreativeTaskOrDefault(value) {
+  return typeof value === 'string' && value.trim()
+    ? value
+    : defaultCreativeTaskText;
+}
+
+function restorePromptTemplateForProvider(provider = getSelectedPromptProvider()) {
+  if (!promptTemplateTextarea) return;
+
+  const providerPromptKey = `${provider}Prompt`;
+  chrome.storage.local.get({
+    [providerPromptKey]: defaultPrompts[provider] || defaultPrompts.openai
+  }, (items) => {
+    promptTemplateTextarea.value = getPromptTemplateOrDefault(items[providerPromptKey], provider);
+  });
+}
+
+function bindStandaloneHelpButton(button, content) {
+  if (!button || !content) return;
+
+  const openStandaloneHelp = (event) => {
+    event.preventDefault();
+    openHelpModalContent(content);
+  };
+
+  button.addEventListener('click', openStandaloneHelp);
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      openStandaloneHelp(event);
+    }
+  });
+}
+
+function initializeTranslationPromptControls() {
+  if (promptTemplateTextarea) {
+    promptTemplateTextarea.value = getPromptTemplateOrDefault('', getSelectedPromptProvider());
+    chrome.storage.local.get({
+      selectedProvider: getSelectedPromptProvider(),
+      openaiPrompt: defaultPrompts.openai,
+      anthropicPrompt: defaultPrompts.anthropic,
+      geminiPrompt: defaultPrompts.gemini
+    }, (items) => {
+      const provider = items.selectedProvider || getSelectedPromptProvider();
+      promptTemplateTextarea.value = getPromptTemplateOrDefault(items[`${provider}Prompt`], provider);
+    });
+  }
+
+  if (providerSelect) {
+    providerSelect.addEventListener('change', () => {
+      restorePromptTemplateForProvider(getSelectedPromptProvider());
+    });
+  }
+
+  if (lessonPromptTextarea) {
+    lessonPromptTextarea.value = defaultLessonPrompt;
+    chrome.storage.local.get({ lessonPrompt: defaultLessonPrompt }, (items) => {
+      lessonPromptTextarea.value = getLessonPromptOrDefault(items.lessonPrompt);
+    });
+  }
+
+  if (creativeTaskTextarea) {
+    creativeTaskTextarea.value = defaultCreativeTaskText;
+    chrome.storage.local.get({ globalCreativeTask: defaultCreativeTaskText }, (items) => {
+      creativeTaskTextarea.value = getCreativeTaskOrDefault(items.globalCreativeTask);
+    });
+  }
+
+  if (resetPromptBtn) {
+    resetPromptBtn.addEventListener('click', resetPromptToDefault);
+  }
+  if (resetLessonPromptBtn) {
+    resetLessonPromptBtn.addEventListener('click', resetLessonPromptToDefault);
+  }
+
+  bindStandaloneHelpButton(mainPromptHelpBtn, standalonePromptHelpContent.mainPromptHelpBtn);
+  bindStandaloneHelpButton(lessonPromptHelpBtn, standalonePromptHelpContent.lessonPromptHelpBtn);
+  bindStandaloneHelpButton(creativeTaskHelpBtn, standalonePromptHelpContent.creativeTaskHelpBtn);
+}
+
+function getImagePromptTemplateOrDefault(value) {
+  return typeof value === 'string' && value.trim()
+    ? value
+    : defaultImageTranslationPromptTemplate;
+}
+
+function initializeImagePromptOptions() {
+  if (!imagePromptTemplateTextarea) return;
+
+  imagePromptTemplateTextarea.value = defaultImageTranslationPromptTemplate;
+
+  if (resetImagePromptBtn) {
+    resetImagePromptBtn.addEventListener('click', resetImagePromptToDefault);
+  }
+  bindStandaloneHelpButton(imagePromptHelpBtn, standalonePromptHelpContent.imagePromptHelpBtn);
+
+  chrome.storage.local.get({
+    imageTranslationPromptTemplate: defaultImageTranslationPromptTemplate
+  }, (items) => {
+    imagePromptTemplateTextarea.value = getImagePromptTemplateOrDefault(items.imageTranslationPromptTemplate);
+  });
+}
+
 function restoreOptions() {
   // Define all keys we might retrieve, including provider-specific prompt templates and models
   const keysToGet = {
@@ -546,7 +649,7 @@ function restoreOptions() {
     
     // Set default creative task if empty (for new installations)
     if (!items.globalCreativeTask || items.globalCreativeTask.trim() === '') {
-      creativeTaskTextarea.value = 'After translating, explain any cultural nuances found in the original text.';
+      creativeTaskTextarea.value = defaultCreativeTaskText;
     } else {
       creativeTaskTextarea.value = items.globalCreativeTask;
     }
@@ -644,7 +747,7 @@ function restoreOptions() {
     }
 
     if (imagePromptTemplateTextarea) {
-      imagePromptTemplateTextarea.value = items.imageTranslationPromptTemplate || defaultImageTranslationPromptTemplate;
+      imagePromptTemplateTextarea.value = getImagePromptTemplateOrDefault(items.imageTranslationPromptTemplate);
     }
 
     fetchLastLLMData();
@@ -928,7 +1031,7 @@ function updateGoogleTtsTestText() {
 
 function resetPromptToDefault() {
   const provider = providerSelect.value;
-  promptTemplateTextarea.value = defaultPrompts[provider];
+  promptTemplateTextarea.value = getPromptTemplateOrDefault('', provider);
 }
 
 function resetLessonPromptToDefault() {

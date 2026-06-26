@@ -348,6 +348,16 @@ ol {
   pointer-events: none;
 }
 
+#customLanguageSection.disabled-section {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#customLanguageSection.disabled-section input[type="text"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 #customLanguageSection {
   display: flex;
   align-items: center;

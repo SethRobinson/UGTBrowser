@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UGTBrowser Settings</title>
-    <link rel="stylesheet" href="options.css" />
+    <link rel="stylesheet" href="options.css?v=options-ui-fixes-3" />
   </head>
   <body>
     <div class="container">
@@ -102,7 +102,7 @@
               </label>
               <div id="customLanguageSection">
                 <input type="text" id="customLanguage" placeholder="e.g., Klingon">
-                <span id="customHelp" class="help-icon">?</span>
+                <span id="customHelp" class="help-icon" role="button" tabindex="0" title="Custom target language help">?</span>
               </div>
             </div>
           </div>
@@ -170,7 +170,7 @@
 
             <div class="form-group" id="promptSection">
               <div class="prompt-header">
-                <label for="promptTemplate">Prompt Template: <span class="help-icon" id="mainPromptHelpBtn">?</span></label>
+                <label for="promptTemplate">Prompt Template: <span class="help-icon" id="mainPromptHelpBtn" role="button" tabindex="0" title="Prompt template help">?</span></label>
                 <button id="resetPromptBtn" class="small-button">Reset to Default</button>
               </div>
               <p class="help-text">Use {{text}} for the text to translate and {{target}} for the target language. Ensure your prompt asks the LLM to output translations wrapped in &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt; tags for each segment.</p>
@@ -183,7 +183,7 @@
               <legend>Lesson Settings</legend>
               <div class="form-group">
                 <div class="prompt-header">
-                  <label for="lessonPromptTextarea">Lesson Prompt Template: <span class="help-icon" id="lessonPromptHelpBtn">?</span></label>
+                  <label for="lessonPromptTextarea">Lesson Prompt Template: <span class="help-icon" id="lessonPromptHelpBtn" role="button" tabindex="0" title="Lesson prompt help">?</span></label>
                   <button id="resetLessonPromptBtn" class="small-button">Reset to Default</button>
                 </div>
                 <p class="help-text">This prompt is used when you select text and choose "Create Lesson" from the right-click menu. Use {0} as a placeholder for the selected text.</p>
@@ -196,7 +196,7 @@
             <fieldset>
               <legend>Creative Task</legend>
               <div class="form-group">
-                <label for="creativeTaskTextarea">Optional Creative Task: <span class="help-icon" id="creativeTaskHelpBtn">?</span></label>
+                <label for="creativeTaskTextarea">Optional Creative Task: <span class="help-icon" id="creativeTaskHelpBtn" role="button" tabindex="0" title="Optional creative task help">?</span></label>
                 <textarea id="creativeTaskTextarea" class="form-control" rows="3" placeholder="e.g., Make the translation sound like a pirate."></textarea>
               </div>
             </fieldset>
@@ -258,7 +258,7 @@
 
             <div class="form-group" id="imagePromptSection">
               <div class="prompt-header">
-                <label for="imagePromptTemplate">Image Translation Prompt: <span class="help-icon" id="imagePromptHelpBtn">?</span></label>
+                <label for="imagePromptTemplate">Image Translation Prompt: <span class="help-icon" id="imagePromptHelpBtn" role="button" tabindex="0" title="Image translation prompt help">?</span></label>
                 <button id="resetImagePromptBtn" class="small-button">Reset to Default</button>
               </div>
               <p class="help-text">Use {{target}} for the selected target language. The customized prompt is saved only in Chrome extension storage.</p>
@@ -514,7 +514,7 @@
 
           <div class="settings-section">
             <h2>Support & Feedback</h2>
-            <p>Comments, feedback, or bug reports? Visit the GitHub page to open an issue or contribute!</p>
+            <p>Comments, feedback, or bug reports? Visit the <a href="https://github.com/SethRobinson/UGTBrowser" target="_blank" rel="noopener">GitHub page</a> to open an issue or contribute!</p>
           </div>
 
         </div>
@@ -537,6 +537,6 @@
       </div>
     </div>
 
-    <script src="options.js"></script>
+    <script src="options.js?v=options-ui-fixes-3"></script>
   </body>
 </html>
