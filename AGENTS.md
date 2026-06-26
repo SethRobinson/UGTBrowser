@@ -51,6 +51,8 @@ Image translation was added as a right-click image workflow:
 11. The content script replaces the original image `src`/paint layer with the returned `data:image/png;base64,...` result and freezes the displayed dimensions to reduce layout shift. Some sites, notably X/Twitter, render the visible image on a sibling CSS `background-image` layer while keeping the real `<img>` transparent for browser image behavior; replacement must update that matching background layer too.
 12. After a successful replacement, the content script keeps a compact collapsed action control on the image. Hovering/focusing/clicking it reveals magnifier and flip actions. The magnifier action opens the translated data URL in a normal Chrome window; the flip action toggles the page image between original and translated states, including X/Twitter CSS background layers.
 
+Still-image translations are tracked by request ID and may have multiple OpenAI image edit jobs in flight at once. The background registers the clicked image target before waiting on storage/settings reads so quick consecutive image translations are less likely to bind to a later right-click target. For normal image elements, the content script locks one translated display size from the original rendered rect and restores the page's original inline sizing when the user flips back to the original image; avoid reintroducing logic that bases each flip on the current mutated rect.
+
 Relevant code:
 
 - `src/shared/constants.js`: `CONTEXT_MENU_TRANSLATE_IMAGE`

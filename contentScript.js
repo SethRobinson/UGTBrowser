@@ -2320,6 +2320,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         opacity: image.style.opacity
       },
       originalImageState: captureImageDisplayState(image),
+      translatedDisplaySize: {
+        width: rect.width,
+        height: rect.height
+      },
       sourceUrl: image.currentSrc || image.src || srcUrl || '',
       progressTitle: 'Preparing image',
       progressDetail: '',
@@ -2819,6 +2823,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
 
     if (!keepTarget) {
+      if (target.reapplyTimer) {
+        clearInterval(target.reapplyTimer);
+        target.reapplyTimer = null;
+      }
+
       if (target.kind === 'video-frame') {
         cleanupVideoFrameTranslationTarget(target, { resume: true });
       } else {
@@ -3288,6 +3297,51 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   }
 
+  function restoreOriginalImageSizing(image, target) {
+    if (!image?.isConnected || !target?.originalStyle) return;
+
+    image.style.width = target.originalStyle.width || '';
+    image.style.height = target.originalStyle.height || '';
+    image.style.objectFit = target.originalStyle.objectFit || '';
+  }
+
+  function getStableTranslatedImageSize(image, target) {
+    const existing = target?.translatedDisplaySize;
+    if (
+      existing &&
+      Number.isFinite(existing.width) &&
+      Number.isFinite(existing.height) &&
+      existing.width >= 8 &&
+      existing.height >= 8
+    ) {
+      return existing;
+    }
+
+    const rect = image.getBoundingClientRect();
+    const width = rect.width || target?.originalRect?.width || image.naturalWidth || 0;
+    const height = rect.height || target?.originalRect?.height || image.naturalHeight || 0;
+    if (width < 8 || height < 8) return null;
+
+    const size = { width, height };
+    if (target) {
+      target.translatedDisplaySize = size;
+    }
+    return size;
+  }
+
+  function applyTranslatedImageSizing(image, target) {
+    const size = getStableTranslatedImageSize(image, target);
+    if (!size) return false;
+
+    image.style.width = `${size.width}px`;
+    image.style.height = `${size.height}px`;
+    if (!image.style.objectFit) {
+      image.style.objectFit = 'contain';
+    }
+
+    return true;
+  }
+
   function applyOriginalImageToElement(image, target) {
     if (!image?.isConnected || !target?.originalImageState) return false;
 
@@ -3302,6 +3356,8 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     if (original.currentSrc || original.src || target.sourceUrl) {
       image.src = original.currentSrc || original.src || target.sourceUrl;
     }
+
+    restoreOriginalImageSizing(image, target);
 
     const originalPaintLayerCount = applyOriginalImageToPaintLayers(image, target);
     const imageStyle = getComputedStyle(image);
@@ -3324,11 +3380,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     image.dataset.ugtTranslatedImage = 'true';
     image.removeAttribute('srcset');
     image.removeAttribute('sizes');
-    image.style.width = `${rect.width}px`;
-    image.style.height = `${rect.height}px`;
-    if (!image.style.objectFit) {
-      image.style.objectFit = 'contain';
-    }
+    if (!applyTranslatedImageSizing(image, target)) return false;
     image.src = imageDataUrl;
 
     const translatedPaintLayerCount = applyTranslatedImageToPaintLayers(image, imageDataUrl, sourceCandidates);

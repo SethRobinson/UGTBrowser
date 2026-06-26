@@ -54,6 +54,7 @@ let lastLLMRequest = null;
 let lastLLMResponse = null;
 let lastImageTranslationRequest = null;
 let lastImageTranslationResponse = null;
+const activeImageTranslationRequests = new Map();
 
 // ========================================
 // HEARTBEAT AND CONNECTION MONITORING
@@ -453,6 +454,15 @@ function setImageTranslationDebugRequest(details) {
     timestamp: new Date().toISOString(),
     ...details
   };
+
+  if (details.requestId) {
+    activeImageTranslationRequests.set(details.requestId, {
+      requestId: details.requestId,
+      lastUpdated: lastImageTranslationRequest.timestamp,
+      request: lastImageTranslationRequest,
+      response: activeImageTranslationRequests.get(details.requestId)?.response || null
+    });
+  }
 }
 
 function setImageTranslationDebugResponse(details) {
@@ -460,6 +470,22 @@ function setImageTranslationDebugResponse(details) {
     timestamp: new Date().toISOString(),
     ...details
   };
+
+  if (details.requestId) {
+    if (details.status === 'complete' || details.status === 'error') {
+      activeImageTranslationRequests.delete(details.requestId);
+    } else {
+      const existing = activeImageTranslationRequests.get(details.requestId) || {
+        requestId: details.requestId,
+        request: null
+      };
+      activeImageTranslationRequests.set(details.requestId, {
+        ...existing,
+        lastUpdated: lastImageTranslationResponse.timestamp,
+        response: lastImageTranslationResponse
+      });
+    }
+  }
 }
 
 async function handleOffscreenImageEditComplete(message) {
@@ -663,7 +689,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       lastRequest: lastLLMRequest,
       lastResponse: lastLLMResponse,
       lastImageRequest: lastImageTranslationRequest,
-      lastImageResponse: lastImageTranslationResponse
+      lastImageResponse: lastImageTranslationResponse,
+      activeImageRequests: Array.from(activeImageTranslationRequests.values())
     });
     return true;
   }
@@ -1208,7 +1235,7 @@ async function handleImageTranslateMenuClick(info, tab) {
   }
 
   try {
-    const data = await chrome.storage.local.get([
+    const dataPromise = chrome.storage.local.get([
       'settings',
       'languageMode',
       'targetLanguage',
@@ -1216,26 +1243,44 @@ async function handleImageTranslateMenuClick(info, tab) {
       'imageTranslationPromptTemplate',
       'openaiApiKey'
     ]);
+    const targetPromise = sendMessageToFrame(tab.id, frameId, {
+      type: "UGT_IMAGE_TRANSLATION_GET_TARGET",
+      requestId,
+      srcUrl: info.srcUrl || ''
+    })
+      .then((target) => ({ target }))
+      .catch((error) => ({ error }));
+
+    const [data, targetResult] = await Promise.all([dataPromise, targetPromise]);
 
     if (!data.openaiApiKey) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: "UGT_SHOW_ERROR",
-        message: "Image translation requires an OpenAI API key. Add it in UGTBrowser Settings > API Keys.",
-        errorContext: "API_KEY_ISSUE"
-      }, { frameId });
+      const message = "Image translation requires an OpenAI API key. Add it in UGTBrowser Settings > API Keys.";
+      if (targetResult.target?.ok) {
+        await sendMessageToFrame(tab.id, frameId, {
+          type: "UGT_IMAGE_TRANSLATION_ERROR",
+          requestId,
+          error: message
+        }).catch(() => null);
+      } else {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "UGT_SHOW_ERROR",
+          message,
+          errorContext: "API_KEY_ISSUE"
+        }, { frameId });
+      }
       return;
     }
 
+    if (targetResult.error) {
+      throw targetResult.error;
+    }
+
+    const target = targetResult.target;
     const targetLanguage = getImageTranslationTargetLanguage(data);
     const imageTranslationPrompt = buildImageTranslationPrompt(
       targetLanguage,
       data.imageTranslationPromptTemplate
     );
-    const target = await sendMessageToFrame(tab.id, frameId, {
-      type: "UGT_IMAGE_TRANSLATION_GET_TARGET",
-      requestId,
-      srcUrl: info.srcUrl || ''
-    });
 
     if (!target?.ok) {
       throw new Error(target?.error || 'Could not identify the clicked image');
