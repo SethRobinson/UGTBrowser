@@ -103,6 +103,8 @@ Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key
 
 Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context.
 
+The settings UI separates `Text Translation LLM` from `API Keys`. The text provider/model controls choose the LLM for selected-text translation, notes, lessons, and follow-up chat. The API Keys section shows OpenAI, Anthropic, and Gemini credentials together so each key is entered once. Image and video-frame translation always use OpenAI image editing and require `openaiApiKey` regardless of the selected text provider.
+
 The still-image translation prompt can be customized from the settings page's Image tab. The source default is duplicated in `options.js` and `src/shared/constants.js`; keep both copies synchronized. User customizations are stored only in `chrome.storage.local` under `imageTranslationPromptTemplate`, so they are not committed to the repo.
 
 ## Text Model Defaults
@@ -113,6 +115,7 @@ Current text defaults:
 
 - OpenAI defaults to `gpt-5.5`. `gpt-5.5`, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API for text generation and streaming; older supported OpenAI text models remain on Chat Completions. Do not send `temperature` to `gpt-5.5` or GPT-5.4 variants.
 - Anthropic defaults to `claude-sonnet-4-6`, with `claude-opus-4-8` selectable for higher-capability work. Do not send non-default sampling parameters such as `temperature` to `claude-opus-4-8`.
+- Gemini defaults to `gemini-3.5-flash-medium`, shown in settings as `Gemini 3.5 Flash (Medium)`. The three Gemini 3.5 Flash dropdown entries use internal values `gemini-3.5-flash-low`, `gemini-3.5-flash-medium`, and `gemini-3.5-flash-high`; all normalize to the API model ID `gemini-3.5-flash` with `thinkingConfig.thinkingLevel` set to `low`, `medium`, or `high`. Do not send `temperature` to these entries. Older Gemini 2.5 and 3-series models still use the Gemini thinking checkbox.
 
 ## Build And Smoke Checks
 

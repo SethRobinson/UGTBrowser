@@ -1220,7 +1220,7 @@ async function handleImageTranslateMenuClick(info, tab) {
     if (!data.openaiApiKey) {
       chrome.tabs.sendMessage(tab.id, {
         type: "UGT_SHOW_ERROR",
-        message: "OpenAI API key is not configured. Please add your API key in UGTBrowser Settings.",
+        message: "Image translation requires an OpenAI API key. Add it in UGTBrowser Settings > API Keys.",
         errorContext: "API_KEY_ISSUE"
       }, { frameId });
       return;
@@ -1389,7 +1389,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
     if (!data.openaiApiKey) {
       chrome.tabs.sendMessage(tab.id, {
         type: "UGT_SHOW_ERROR",
-        message: "OpenAI API key is not configured. Please add your API key in UGTBrowser Settings.",
+        message: "Image translation requires an OpenAI API key. Add it in UGTBrowser Settings > API Keys.",
         errorContext: "API_KEY_ISSUE"
       }, { frameId });
       return;

@@ -3,19 +3,60 @@
 
 import { supportsTemperature, isGemini3Model, supportsGeminiThinking } from '../../shared/utils.js';
 
+const GEMINI_35_FLASH_MODEL_ID = "gemini-3.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-medium";
+
+const GEMINI_MODEL_VARIANTS = {
+  "gemini-3.5-flash": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.5-flash-low": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.5-flash-medium": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.5-flash-high": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "high" }
+};
+
+function resolveGeminiModel(model) {
+  const requestedModel = model || DEFAULT_GEMINI_MODEL;
+  const lowerModel = requestedModel.toLowerCase();
+  return {
+    requestedModel,
+    modelId: GEMINI_MODEL_VARIANTS[lowerModel]?.modelId || requestedModel,
+    thinkingLevel: GEMINI_MODEL_VARIANTS[lowerModel]?.thinkingLevel || null
+  };
+}
+
+function addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEnabled, configureLegacyThinking = true) {
+  if (thinkingLevel) {
+    generationConfig.thinkingConfig = { thinkingLevel };
+    return generationConfig.thinkingConfig;
+  }
+
+  if (!configureLegacyThinking || !supportsGeminiThinking(modelId)) {
+    return null;
+  }
+
+  const thinkingConfig = {};
+  if (isGemini3Model(modelId)) {
+    thinkingConfig.thinkingLevel = thinkingEnabled ? "high" : "low";
+  } else {
+    thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 0;
+  }
+  generationConfig.thinkingConfig = thinkingConfig;
+  return thinkingConfig;
+}
+
 /**
  * Non-streaming Gemini API call
  */
 export async function fetchFromGemini(prompt, model, apiKey) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
-  const modelId = model || "gemini-1.5-pro";
+  const { modelId, thinkingLevel } = resolveGeminiModel(model);
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
   
   const generationConfig = { maxOutputTokens: 8192 };
   if (supportsTemperature(modelId)) {
     generationConfig.temperature = 0.1;
   }
+  addThinkingConfig(generationConfig, modelId, thinkingLevel, false, false);
   
   const requestBody = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -48,9 +89,9 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   console.log("Starting Gemini streaming request with new tagged format handling (revised parsing)");
-  let modelId = model || "gemini-1.5-pro";
+  const { requestedModel, modelId, thinkingLevel } = resolveGeminiModel(model);
   const thinkingEnabled = settings.geminiThinkingEnabled === true;
-  console.log(`Using Gemini model: ${modelId}, thinkingEnabled: ${thinkingEnabled}`);
+  console.log(`Using Gemini model: ${requestedModel} (API model: ${modelId}), thinkingEnabled: ${thinkingEnabled}`);
   
   const heartbeatInterval = setInterval(() => {
     if (abortSignal && abortSignal.aborted) {
@@ -75,14 +116,8 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
       generationConfig.temperature = 0.1;
     }
     
-    if (supportsGeminiThinking(modelId)) {
-      const thinkingConfig = {};
-      if (isGemini3Model(modelId)) {
-        thinkingConfig.thinkingLevel = thinkingEnabled ? "high" : "low";
-      } else {
-        thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 0;
-      }
-      generationConfig.thinkingConfig = thinkingConfig;
+    const thinkingConfig = addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEnabled);
+    if (thinkingConfig) {
       console.log(`Gemini thinking config: model=${modelId}, enabled=${thinkingEnabled}, config=`, thinkingConfig);
     }
     
@@ -389,13 +424,14 @@ function processGeminiData(data, port, abortSignal) {
 export async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
-  const modelId = model || "gemini-1.5-pro";
+  const { modelId, thinkingLevel } = resolveGeminiModel(model);
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?key=${apiKey}`;
   
   const generationConfig = { maxOutputTokens: 8192 };
   if (supportsTemperature(modelId)) {
     generationConfig.temperature = 0.7;
   }
+  addThinkingConfig(generationConfig, modelId, thinkingLevel, settings.geminiThinkingEnabled === true);
   
   const requestBody = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],

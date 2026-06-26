@@ -72,6 +72,7 @@ const imagePromptHelpBtn = document.getElementById('imagePromptHelpBtn');
 const resetLessonPromptBtn = document.getElementById('resetLessonPromptBtn');
 const resetImagePromptBtn = document.getElementById('resetImagePromptBtn');
 const statusDiv = document.getElementById('status');
+const imageOpenAIKeyStatus = document.getElementById('imageOpenAIKeyStatus');
 
 // Language mode elements
 const languageModeRadios = document.querySelectorAll('input[name="languageMode"]');
@@ -142,7 +143,7 @@ const defaultCreativeTaskText = 'After translating, explain any cultural nuances
 const standalonePromptHelpContent = {
   mainPromptHelpBtn: {
     title: "Prompt Template Guide",
-    body: "<p>The prompt template defines how UGTBrowser instructs the LLM to perform translations. Advanced users can customize this.</p>" +
+    body: "<p>The prompt template defines how UGTBrowser instructs the selected text translation LLM. Advanced users can customize this.</p>" +
           "<p><strong>Key Placeholders:</strong></p>" +
           "<ul>" +
           "<li><code>{{text}}</code>: This is where the actual text segments selected for translation will be inserted. The content script typically formats this as multiple lines, each with a unique ID.</li>" +
@@ -165,6 +166,7 @@ const standalonePromptHelpContent = {
     title: "Image Translation Prompt",
     body: "<p>This prompt is sent to OpenAI with the captured image when you right-click an image and choose <strong>Translate image</strong>.</p>" +
           "<p><code>{{target}}</code> is replaced with the selected target language or custom target language prompt.</p>" +
+          "<p>Image and video-frame translation require the OpenAI API key configured in the API Keys section, regardless of the selected text translation provider.</p>" +
           "<p>Customizations are stored in Chrome extension storage and are not written to project files.</p>"
   }
 };
@@ -174,6 +176,10 @@ const noTemperatureModels = [
   "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
   "gpt-5-mini", "gpt-5-nano",
   "claude-opus-4-8",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-medium",
+  "gemini-3.5-flash-high",
+  "gemini-3.5-flash-low",
   "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
   "gemini-3-pro-preview", "gemini-3-flash-preview"
 ];
@@ -181,7 +187,13 @@ const noTemperatureModels = [
 const providerModels = {
   openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
-  gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+  gemini: ["gemini-3.5-flash-medium", "gemini-3.5-flash-high", "gemini-3.5-flash-low", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+};
+
+const modelDisplayNames = {
+  "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
+  "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
+  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)"
 };
 
 // Default lesson prompt
@@ -286,6 +298,7 @@ function initializeOptionsPage() {
     updateThinkingCheckboxVisibility();
   });
   customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
+  openAIApiKeyInput.addEventListener('input', updateImageOpenAIKeyStatus);
   saveBtn.addEventListener('click', saveOptions);
   
   if (refreshLLMDataBtn) {
@@ -617,6 +630,7 @@ function restoreOptions() {
     openAIApiKeyInput.value = items.openaiApiKey;
     anthropicApiKeyInput.value = items.anthropicApiKey;
     geminiApiKeyInput.value = items.geminiApiKey;
+    updateImageOpenAIKeyStatus();
     // Restore provider-specific model (with backward compatibility for old 'model' key)
     const providerModelKey = `${items.selectedProvider}Model`;
     const providerCustomModelKey = `${items.selectedProvider}CustomModel`;
@@ -687,7 +701,7 @@ function restoreOptions() {
 
     customLanguageInput.value = items.customLanguage;
     
-    updateProviderFields(); // Updates API key visibility, model dropdowns, and loads the provider's prompt template
+    updateProviderFields(); // Keeps credentials visible and loads the provider's prompt template
     updateModelOptions(savedModel || providerModels[items.selectedProvider]?.[0], savedCustomModel);
     updateLanguageSectionState();
     updateThinkingCheckboxVisibility();
@@ -854,6 +868,7 @@ function saveOptions() {
   };
   
   chrome.storage.local.set(settingsToSave, () => {
+    updateImageOpenAIKeyStatus();
     statusDiv.textContent = 'Settings saved.';
     statusDiv.style.color = 'green'; 
     statusDiv.classList.add('visible');
@@ -868,25 +883,29 @@ function saveOptions() {
 function updateProviderFields() {
   const provider = providerSelect.value;
 
-  [openaiKeyWrapper, anthropicKeyWrapper, geminiKeyWrapper].forEach(w => w.style.display = 'none');
-  [openaiApiKeyHelp, anthropicApiKeyHelp, geminiApiKeyHelp].forEach(h => h.style.display = 'none');
-
-  if (provider === 'openai') {
-    openaiKeyWrapper.style.display = 'block';
-    if (openaiApiKeyHelp) openaiApiKeyHelp.style.display = 'block';
-  } else if (provider === 'anthropic') {
-    anthropicKeyWrapper.style.display = 'block';
-    if (anthropicApiKeyHelp) anthropicApiKeyHelp.style.display = 'block';
-  } else if (provider === 'gemini') {
-    geminiKeyWrapper.style.display = 'block';
-    if (geminiApiKeyHelp) geminiApiKeyHelp.style.display = 'block';
-  }
+  [openaiKeyWrapper, anthropicKeyWrapper, geminiKeyWrapper].forEach(w => {
+    if (w) w.style.display = 'block';
+  });
+  [openaiApiKeyHelp, anthropicApiKeyHelp, geminiApiKeyHelp].forEach(h => {
+    if (h) h.style.display = 'block';
+  });
   
   // Load the UNRESOLVED prompt template for this provider into the textarea
   const providerPromptKey = `${provider}Prompt`;
   chrome.storage.local.get([providerPromptKey], (items) => {
     promptTemplateTextarea.value = items[providerPromptKey] || defaultPrompts[provider];
   });
+}
+
+function updateImageOpenAIKeyStatus() {
+  if (!imageOpenAIKeyStatus || !openAIApiKeyInput) return;
+
+  const hasOpenAIKey = openAIApiKeyInput.value.trim().length > 0;
+  imageOpenAIKeyStatus.textContent = hasOpenAIKey
+    ? 'OpenAI key configured. Image and video-frame translation can use OpenAI image editing.'
+    : 'OpenAI key missing. Image and video-frame translation require an OpenAI API key in the API Keys section.';
+  imageOpenAIKeyStatus.classList.toggle('feature-status-ok', hasOpenAIKey);
+  imageOpenAIKeyStatus.classList.toggle('feature-status-warning', !hasOpenAIKey);
 }
 
 function updateModelOptions(currentModel = null, currentCustomModel = null) {
@@ -897,13 +916,17 @@ function updateModelOptions(currentModel = null, currentCustomModel = null) {
   models.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m;
-    opt.textContent = m;
+    opt.textContent = modelDisplayNames[m] || m;
     modelSelect.appendChild(opt);
   });
 
-  if (currentModel && models.includes(currentModel)) {
-    modelSelect.value = currentModel;
-  } else if (currentCustomModel || (currentModel && !models.includes(currentModel))) {
+  const normalizedCurrentModel = currentModel === 'gemini-3.5-flash'
+    ? 'gemini-3.5-flash-medium'
+    : currentModel;
+
+  if (normalizedCurrentModel && models.includes(normalizedCurrentModel)) {
+    modelSelect.value = normalizedCurrentModel;
+  } else if (currentCustomModel || (currentModel && !models.includes(normalizedCurrentModel))) {
      // If there was a custom model saved, or the saved model isn't in the list,
      // try to set customModelInput. The modelSelect might remain on its first option.
     customModelInput.value = currentCustomModel || currentModel || '';
@@ -1062,6 +1085,11 @@ function isGemini25Or3Model(model) {
   return model.startsWith('gemini-2.5') || model.startsWith('gemini-3');
 }
 
+function isGemini35FlashThinkingVariant(model) {
+  if (!model) return false;
+  return /^gemini-3\.5-flash-(low|medium|high)$/i.test(model);
+}
+
 function updateThinkingCheckboxVisibility() {
   const provider = providerSelect.value;
   const selectedModelValue = modelSelect.value;
@@ -1084,7 +1112,7 @@ function updateThinkingCheckboxVisibility() {
   
   // Show/hide Gemini thinking checkbox
   if (geminiThinkingWrapper && geminiThinkingCheckbox) {
-    if (provider === 'gemini' && isGemini25Or3Model(actualModel)) {
+    if (provider === 'gemini' && isGemini25Or3Model(actualModel) && !isGemini35FlashThinkingVariant(actualModel)) {
       geminiThinkingWrapper.style.display = 'block';
     } else {
       geminiThinkingWrapper.style.display = 'none';

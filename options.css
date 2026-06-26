@@ -319,10 +319,30 @@ ol {
 #openaiApiKeyHelp,
 #anthropicApiKeyHelp,
 #geminiApiKeyHelp {
-  display: none;
+  display: block;
   font-size: 0.85em;
   margin-top: 6px;
   color: #555;
+}
+
+.feature-status {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin: 10px 0 16px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.feature-status-ok {
+  background: #f0f8f2;
+  border-color: #b9dfc1;
+  color: #23612c;
+}
+
+.feature-status-warning {
+  background: #fff7e6;
+  border-color: #f2c56d;
+  color: #684400;
 }
 
 #toggleDebugBtn {
