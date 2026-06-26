@@ -12,6 +12,7 @@ import {
   CONTEXT_MENU_SETTINGS,
   defaultPrompts,
   defaultLessonPrompt,
+  defaultImageTranslationPromptTemplate,
   unifiedDefaultPrompt
 } from '../shared/constants.js';
 
@@ -286,17 +287,16 @@ function getImageTranslationTargetLanguage(data) {
   return data.targetLanguage || settings.targetLang || 'English';
 }
 
-function buildImageTranslationPrompt(targetLanguage) {
-  return [
-    `Translate all visible source-language text in this image to ${targetLanguage} directly in the image.`,
-    'Preserve the original layout, borders, spacing, alignment, typography hierarchy, photos, graphics, and overall visual appearance.',
-    'Favor literal translation over paraphrase. Preserve reading order, dates, names, brands, quoted titles, and unusual phrasing as much as possible.',
-    'Preserve numeric values, prices, currency symbols, currency units, measurements, and product quantities exactly; translate unit words only when needed, but do not convert currencies or amounts.',
-    'Resize translated text as needed to fit the original text regions.',
-    'Keep translated text inside the original text area and do not overlap decorative rules, borders, icons, photos, hands, or other non-text graphics.',
-    'Do not add subtitles, annotations, callouts, bounding boxes, JSON, coordinates, or side-by-side translations.',
-    'Do not leave untranslated source-language text visible unless it is a proper noun, brand name, or intentionally untranslated title.'
-  ].join(' ');
+function fillImageTranslationPromptTemplate(template, targetLanguage) {
+  const promptTemplate = typeof template === 'string' && template.trim()
+    ? template
+    : defaultImageTranslationPromptTemplate;
+
+  return promptTemplate.split('{{target}}').join(targetLanguage);
+}
+
+function buildImageTranslationPrompt(targetLanguage, promptTemplate = defaultImageTranslationPromptTemplate) {
+  return fillImageTranslationPromptTemplate(promptTemplate, targetLanguage);
 }
 
 function buildVideoFrameTranslationPrompt(targetLanguage) {
@@ -1213,6 +1213,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       'languageMode',
       'targetLanguage',
       'customLanguage',
+      'imageTranslationPromptTemplate',
       'openaiApiKey'
     ]);
 
@@ -1226,6 +1227,10 @@ async function handleImageTranslateMenuClick(info, tab) {
     }
 
     const targetLanguage = getImageTranslationTargetLanguage(data);
+    const imageTranslationPrompt = buildImageTranslationPrompt(
+      targetLanguage,
+      data.imageTranslationPromptTemplate
+    );
     const target = await sendMessageToFrame(tab.id, frameId, {
       type: "UGT_IMAGE_TRANSLATION_GET_TARGET",
       requestId,
@@ -1309,7 +1314,8 @@ async function handleImageTranslateMenuClick(info, tab) {
       requestedSize: size,
       model: 'gpt-image-2',
       quality: 'low',
-      outputFormat: 'png'
+      outputFormat: 'png',
+      prompt: imageTranslationPrompt
     });
 
     await startImageEditViaOffscreen({
@@ -1318,7 +1324,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       frameId,
       imageDataUrl: capture.imageDataUrl,
       apiKey: data.openaiApiKey,
-      prompt: buildImageTranslationPrompt(targetLanguage),
+      prompt: imageTranslationPrompt,
       model: 'gpt-image-2',
       quality: 'low',
       size,
@@ -1390,6 +1396,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
     }
 
     const targetLanguage = getImageTranslationTargetLanguage(data);
+    const videoFramePrompt = buildVideoFrameTranslationPrompt(targetLanguage);
     const target = await sendMessageToFrame(tab.id, frameId, {
       type: "UGT_VIDEO_FRAME_TRANSLATION_GET_TARGET",
       requestId,
@@ -1455,7 +1462,8 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       requestedSize: size,
       model: 'gpt-image-2',
       quality: 'low',
-      outputFormat: 'png'
+      outputFormat: 'png',
+      prompt: videoFramePrompt
     });
 
     await startImageEditViaOffscreen({
@@ -1464,7 +1472,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       frameId,
       imageDataUrl: capture.imageDataUrl,
       apiKey: data.openaiApiKey,
-      prompt: buildVideoFrameTranslationPrompt(targetLanguage),
+      prompt: videoFramePrompt,
       model: 'gpt-image-2',
       quality: 'low',
       size,

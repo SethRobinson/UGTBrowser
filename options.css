@@ -66,6 +66,7 @@ h2 {
 .tab-navigation {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 0;
   background: white;
   padding: 12px 12px 0;
@@ -116,6 +117,14 @@ h2 {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .tab-button {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+    padding: 10px 12px;
+  }
 }
 
 /* Tab Content */
@@ -249,6 +258,11 @@ button:hover {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+}
+
+.image-prompt-actions {
+  margin-top: 12px;
+  text-align: right;
 }
 
 .help-text {

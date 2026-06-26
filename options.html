@@ -21,6 +21,14 @@
           </svg>
           Translation
         </button>
+        <button class="tab-button" data-tab="image">
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <circle cx="8.5" cy="10" r="1.5"/>
+            <path d="M21 15l-5-5L5 19"/>
+          </svg>
+          Image
+        </button>
         <button class="tab-button" data-tab="audio">
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -230,8 +238,33 @@
               </div>
 
               <div class="form-group">
+                <label for="lastImageRequestPrompt">Last Image Translation Prompt:</label>
+                <textarea id="lastImageRequestPrompt" class="form-control debug-textarea" rows="6" readonly></textarea>
+              </div>
+
+              <div class="form-group">
                 <label for="lastImageResponseInfo">Last Image Translation Result:</label>
                 <div id="lastImageResponseInfo" class="debug-info">No image translation result data available</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Image Tab Content -->
+        <div id="tab-image" class="tab-content">
+          <div class="settings-section">
+            <h2>Image Translation</h2>
+            <p class="section-intro">Customize the prompt sent to OpenAI when UGTBrowser translates text directly inside an image.</p>
+
+            <div class="form-group" id="imagePromptSection">
+              <div class="prompt-header">
+                <label for="imagePromptTemplate">Image Translation Prompt: <span class="help-icon" id="imagePromptHelpBtn">?</span></label>
+                <button id="resetImagePromptBtn" class="small-button">Reset to Default</button>
+              </div>
+              <p class="help-text">Use {{target}} for the selected target language. The customized prompt is saved only in Chrome extension storage.</p>
+              <textarea id="imagePromptTemplate" class="form-control" rows="10"></textarea>
+              <div class="image-prompt-actions">
+                <button id="saveImagePromptBtn" class="primary-button">Save</button>
               </div>
             </div>
           </div>

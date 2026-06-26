@@ -1,5 +1,6 @@
 // options.js
-// Note: Constants like noTemperatureModels, providerModels, and defaultLessonPrompt
+// Note: Constants like noTemperatureModels, providerModels, defaultLessonPrompt,
+// and defaultImageTranslationPromptTemplate
 // are also defined in src/shared/constants.js. Keep them synchronized.
 
 document.addEventListener('DOMContentLoaded', initializeOptionsPage);
@@ -60,10 +61,13 @@ const geminiThinkingCheckbox = document.getElementById('geminiThinkingCheckbox')
 const promptTemplateTextarea = document.getElementById('promptTemplate');
 const creativeTaskTextarea = document.getElementById('creativeTaskTextarea');
 const lessonPromptTextarea = document.getElementById('lessonPromptTextarea');
+const imagePromptTemplateTextarea = document.getElementById('imagePromptTemplate');
 const mainPromptHelpBtn = document.getElementById('mainPromptHelpBtn');
 const creativeTaskHelpBtn = document.getElementById('creativeTaskHelpBtn');
 const lessonPromptHelpBtn = document.getElementById('lessonPromptHelpBtn');
+const imagePromptHelpBtn = document.getElementById('imagePromptHelpBtn');
 const resetLessonPromptBtn = document.getElementById('resetLessonPromptBtn');
+const resetImagePromptBtn = document.getElementById('resetImagePromptBtn');
 const statusDiv = document.getElementById('status');
 
 // Language mode elements
@@ -78,6 +82,7 @@ const toggleDebugBtn = document.getElementById('toggleDebugBtn');
 const llmDebugContent = document.getElementById('llmDebugContent');
 const refreshLLMDataBtn = document.getElementById('refreshLLMDataBtn');
 const saveBtn = document.getElementById('saveBtn');
+const saveImagePromptBtn = document.getElementById('saveImagePromptBtn');
 const resetPromptBtn = document.getElementById('resetPromptBtn');
 
 // TTS Elements
@@ -140,6 +145,17 @@ Please include:
 2. Key vocabulary with example sentences
 3. Cultural or contextual notes if relevant
 4. At the end, provide 5 helpful flashcards in a clear format for memorization`;
+
+const defaultImageTranslationPromptTemplate = [
+  'Translate all visible source-language text in this image to {{target}} directly in the image.',
+  'Preserve the original layout, borders, spacing, alignment, typography hierarchy, photos, graphics, and overall visual appearance.',
+  'Favor literal translation over paraphrase. Preserve reading order, dates, names, brands, quoted titles, and unusual phrasing as much as possible.',
+  'Preserve numeric values, prices, currency symbols, currency units, measurements, and product quantities exactly; translate unit words only when needed, but do not convert currencies or amounts.',
+  'Resize translated text as needed to fit the original text regions.',
+  'Keep translated text inside the original text area and do not overlap decorative rules, borders, icons, photos, hands, or other non-text graphics.',
+  'Do not add subtitles, annotations, callouts, bounding boxes, JSON, coordinates, or side-by-side translations.',
+  'Do not leave untranslated source-language text visible unless it is a proper noun, brand name, or intentionally untranslated title.'
+].join(' ');
 
 const defaultPrompts = {
   openai: (
@@ -224,7 +240,13 @@ function initializeOptionsPage() {
   });
   customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
   saveBtn.addEventListener('click', saveOptions);
+  if (saveImagePromptBtn) {
+    saveImagePromptBtn.addEventListener('click', saveOptions);
+  }
   resetPromptBtn.addEventListener('click', resetPromptToDefault);
+  if (resetImagePromptBtn) {
+    resetImagePromptBtn.addEventListener('click', resetImagePromptToDefault);
+  }
   
   if (refreshLLMDataBtn) {
     refreshLLMDataBtn.addEventListener('click', fetchLastLLMData);
@@ -354,6 +376,15 @@ function initializeOptionsPage() {
             "<p>'For each segment, use the provided ID and wrap your translation in tags like &lt;ugt_ID&gt;translation&lt;/ugt_ID&gt;. For example, if the input is \"&lt;ugt_abc123&gt;Original Text Segment&lt;/ugt_abc123&gt;\", you should output: \"&lt;ugt_abc123&gt;Translated Text Segment&lt;/ugt_abc123&gt;\".'</p>" +
             "<p>You can also add instructions regarding tone, style, or specific formatting requirements. The default prompts provide good examples of how to structure these instructions.</p>"
     },
+    imagePromptHelpBtn: {
+      title: "Image Translation Prompt",
+      body: "<p>This prompt is sent to OpenAI with the captured image when you right-click an image and choose <strong>Translate image</strong>.</p>" +
+            "<p><strong>Placeholder:</strong></p>" +
+            "<ul>" +
+            "<li><code>{{target}}</code>: Replaced with the selected target language or your custom target language prompt.</li>" +
+            "</ul>" +
+            "<p>Keep instructions focused on in-image text replacement, layout preservation, and numeric/currency preservation. Customizations are stored in Chrome extension storage and are not written to project files.</p>"
+    },
     lessonPromptHelpBtn: {
       title: "Lesson Prompt Template",
       body: "<p>This prompt is used when you highlight text on a webpage and select <strong>\"Create Lesson\"</strong> from the right-click context menu.</p>" +
@@ -412,6 +443,9 @@ function initializeOptionsPage() {
   if (lessonPromptHelpBtn) {
     lessonPromptHelpBtn.addEventListener('click', () => openHelpModal('lessonPromptHelpBtn'));
   }
+  if (imagePromptHelpBtn) {
+    imagePromptHelpBtn.addEventListener('click', () => openHelpModal('imagePromptHelpBtn'));
+  }
   if (resetLessonPromptBtn) {
     resetLessonPromptBtn.addEventListener('click', resetLessonPromptToDefault);
   }
@@ -469,7 +503,9 @@ function restoreOptions() {
     googleTtsSpeakingRate: 1.0,
     googleTtsPitch: 0,
     // Lesson settings
-    lessonPrompt: defaultLessonPrompt
+    lessonPrompt: defaultLessonPrompt,
+    // Image translation settings
+    imageTranslationPromptTemplate: defaultImageTranslationPromptTemplate
   };
 
   // Add provider prompt template keys to keysToGet
@@ -611,6 +647,10 @@ function restoreOptions() {
       lessonPromptTextarea.value = items.lessonPrompt || defaultLessonPrompt;
     }
 
+    if (imagePromptTemplateTextarea) {
+      imagePromptTemplateTextarea.value = items.imageTranslationPromptTemplate || defaultImageTranslationPromptTemplate;
+    }
+
     fetchLastLLMData();
   });
 }
@@ -662,6 +702,9 @@ function saveOptions() {
 
   // Lesson settings
   const lessonPrompt = lessonPromptTextarea ? lessonPromptTextarea.value : defaultLessonPrompt;
+  const imageTranslationPromptTemplate = imagePromptTemplateTextarea
+    ? imagePromptTemplateTextarea.value
+    : defaultImageTranslationPromptTemplate;
 
   const settingsToSave = {
     selectedProvider: provider,
@@ -697,6 +740,8 @@ function saveOptions() {
     googleTtsPitch: googleTtsPitch,
     // Lesson settings
     lessonPrompt: lessonPrompt,
+    // Image translation settings
+    imageTranslationPromptTemplate: imageTranslationPromptTemplate,
     settings: { 
       provider: provider, 
       model: finalModel, 
@@ -896,6 +941,12 @@ function resetLessonPromptToDefault() {
   }
 }
 
+function resetImagePromptToDefault() {
+  if (imagePromptTemplateTextarea) {
+    imagePromptTemplateTextarea.value = defaultImageTranslationPromptTemplate;
+  }
+}
+
 function supportsTemperature(model) {
   if (!model) return true;
   return !noTemperatureModels.includes(model.toLowerCase());
@@ -963,8 +1014,9 @@ function fetchLastLLMData() {
   }
 }
 
-function formatDebugObject(value) {
+function formatDebugObject(value, excludedKeys = []) {
   return Object.entries(value || {})
+    .filter(([key]) => !excludedKeys.includes(key))
     .map(([key, item]) => `${key}: ${item}`)
     .join(' | ');
 }
@@ -975,6 +1027,7 @@ function updateLLMDebugUI(lastRequest, lastResponse, lastImageRequest, lastImage
   const responseInfoElement = document.getElementById('lastResponseInfo');
   const responseContentElement = document.getElementById('lastResponseContent');
   const imageRequestInfoElement = document.getElementById('lastImageRequestInfo');
+  const imageRequestPromptElement = document.getElementById('lastImageRequestPrompt');
   const imageResponseInfoElement = document.getElementById('lastImageResponseInfo');
 
   if (requestInfoElement && requestPromptElement) {
@@ -1006,8 +1059,12 @@ function updateLLMDebugUI(lastRequest, lastResponse, lastImageRequest, lastImage
 
   if (imageRequestInfoElement) {
     imageRequestInfoElement.textContent = lastImageRequest
-      ? formatDebugObject(lastImageRequest)
+      ? formatDebugObject(lastImageRequest, ['prompt'])
       : "No image translation request data available";
+  }
+
+  if (imageRequestPromptElement) {
+    imageRequestPromptElement.value = lastImageRequest?.prompt || "";
   }
 
   if (imageResponseInfoElement) {

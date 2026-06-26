@@ -66,6 +66,7 @@ Current image edit defaults:
 - Quality: `low`
 - Output format: `png`
 - Size: chosen dynamically by `chooseImageEditSize` near the minimum legal pixel budget while preserving the clicked image aspect ratio.
+- Prompt: default template in `src/shared/constants.js` and `options.js`, with `{{target}}` replaced by the selected target language. The settings Image tab can override it via `chrome.storage.local.imageTranslationPromptTemplate`.
 - Prompt constraints explicitly preserve numeric values, prices, currency units/symbols, measurements, and quantities, and tell the model not to overlap translated text with decorative rules, borders, icons, photos, hands, or other non-text graphics.
 
 Known limitations:
@@ -98,8 +99,11 @@ Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key
 - `geminiApiKey`
 - `elevenlabsApiKey`
 - `googleTtsApiKey`
+- `imageTranslationPromptTemplate`
 
 Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context.
+
+The still-image translation prompt can be customized from the settings page's Image tab. The source default is duplicated in `options.js` and `src/shared/constants.js`; keep both copies synchronized. User customizations are stored only in `chrome.storage.local` under `imageTranslationPromptTemplate`, so they are not committed to the repo.
 
 ## Text Model Defaults
 
