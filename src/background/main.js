@@ -1688,8 +1688,12 @@ async function handleAskMenuClick(info, tab) {
 // INITIALIZATION
 // ========================================
 
-// Initialize context menus on install
+// Initialize context menus on install/update and browser startup.
 chrome.runtime.onInstalled.addListener(() => {
+  initializeContextMenus();
+});
+
+chrome.runtime.onStartup.addListener(() => {
   initializeContextMenus();
 });
 

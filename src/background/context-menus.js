@@ -23,15 +23,26 @@ const TEXT_CONTEXT_MENU_IDS = [
 
 let contextMenuVisibilityListenerRegistered = false;
 
+function formatProviderName(provider) {
+  const normalizedProvider = (provider || "openai").trim().toLowerCase();
+  const providerLabels = {
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    gemini: "Gemini"
+  };
+
+  return providerLabels[normalizedProvider] || normalizedProvider.replace(/^./, (c) => c.toUpperCase());
+}
+
 /**
  * Build the translate menu title based on settings
  */
-export function buildTranslateTitle(settings, simpleMode = false) {
+export function buildTranslateTitle(settings, withNotes = false) {
   let langName = "English";
   let providerName = "OpenAI";
 
   if (settings) {
-    providerName = (settings.provider || "openai").replace(/^./, (c) => c.toUpperCase());
+    providerName = formatProviderName(settings.provider);
 
     if (settings.languageMode === 'custom') {
       if (settings.customLanguage && settings.customLanguage.trim() !== "") {
@@ -50,7 +61,7 @@ export function buildTranslateTitle(settings, simpleMode = false) {
   }
 
   const baseTitle = `Translate to ${langName} with ${providerName}`;
-  return simpleMode ? `${baseTitle} (Translate Only)` : baseTitle;
+  return withNotes ? `${baseTitle} (With Notes)` : baseTitle;
 }
 
 /**
@@ -139,17 +150,17 @@ export function createContextMenus(settings = {}) {
       contexts: ["selection", "page", "link", "image", "video"]
     });
     
-    // Create Translate child item (full version with creative task and follow-up chat)
+    // Create Translate child item (translation only, no extras)
     chrome.contextMenus.create({
-      id: CONTEXT_MENU_TRANSLATE,
+      id: CONTEXT_MENU_TRANSLATE_SIMPLE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings),
       contexts: ["selection"]
     });
-    
-    // Create Translate Simple child item (translation only, no extras)
+
+    // Create Translate With Notes child item (custom instructions and follow-up chat)
     chrome.contextMenus.create({
-      id: CONTEXT_MENU_TRANSLATE_SIMPLE,
+      id: CONTEXT_MENU_TRANSLATE,
       parentId: CONTEXT_MENU_PARENT,
       title: buildTranslateTitle(settings, true),
       contexts: ["selection"]
@@ -221,7 +232,7 @@ export function getEffectiveSettings(fullSettings) {
   return {
     provider: fullSettings.selectedProvider || fullSettings.settings?.provider || 'openai',
     languageMode: fullSettings.languageMode || fullSettings.settings?.languageMode || 'standard',
-    targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'en',
+    targetLanguage: fullSettings.targetLanguage || fullSettings.settings?.targetLang || 'English',
     customLanguage: fullSettings.customLanguage || fullSettings.settings?.customLanguage || '',
     ttsProvider: fullSettings.ttsProvider || 'elevenlabs',
     elevenlabsVoiceName: fullSettings.elevenlabsVoiceName || 'Rachel',

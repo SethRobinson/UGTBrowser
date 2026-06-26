@@ -6,7 +6,7 @@ This file should be updated whenever an agent or developer changes the project a
 
 ## Project Overview
 
-UGTBrowser is a Chrome Manifest V3 browser extension for language tools on webpages. The main user workflow is right-clicking selected text and using AI providers to translate, create lessons, ask follow-up questions, or play text-to-speech.
+UGTBrowser is a Chrome Manifest V3 browser extension for language tools on webpages. The main user workflow is right-clicking selected text and using AI providers to translate, create lessons, ask follow-up questions, or play text-to-speech. In the selected-text context menu, the plain `Translate to X with Y` entry is translate-only; the `Translate to X with Y (With Notes)` entry uses the configured custom instructions and enables follow-up notes/chat behavior. Context menus are initialized on install/update and Chrome startup.
 
 The extension intentionally uses direct browser APIs and direct provider HTTP requests. Do not add SDKs, MCP integrations, or framework dependencies unless there is a clear project-level reason and the owner approves it.
 
@@ -134,7 +134,7 @@ Most README media is generated from deterministic local fixtures so screenshots 
 
 Current README assets:
 
-- `media/ugtbrowser_context_menu.png`: simulated Chrome right-click menu over highlighted Japanese text. It should show `UGTBrowser Language Tools` highlighted and the submenu options clearly.
+- `media/ugtbrowser_context_menu.png`: real native Chrome right-click menu over highlighted Japanese text. It should show `UGTBrowser Language Tools` highlighted and the submenu options clearly. Do not use fabricated submenu icons; Chrome does not show icons on UGTBrowser child context-menu items.
 - `media/ugtbrowser_image_translation.png`: high-color APNG animated in-place image translation flow. Use one fixed crop for every frame; frame-to-frame x/y drift looks bad and should be treated as a failed capture.
 - `media/ugtbrowser_image_translation_social.mp4`: H.264/yuv420p MP4 generated from the same APNG frames and timing for posting to X/Twitter, Mastodon, Bluesky, and similar social platforms.
 - `media/ugtbrowser_translation_notes.png`: inline text translation with cultural notes and follow-up chat affordance.
@@ -146,11 +146,7 @@ Recommended process when asked to "take new screenshots":
 2. For image-translation demos, generate a fresh realistic source photo with an image-generation model and put the Japanese text directly in the generation prompt. Do not manually add, copy, warp, or perspective-map source or translated text afterward. The current example uses a street/cafe photo with an angled sign, shirt text, and an overhead banner so the result demonstrates in-situ text replacement on mixed photo content. Add the small lower-right credit `(Test image via ChatGPT Images 2.0)` to the final APNG/MP4 assets after capture, not before running the extension translation.
 3. The README image-translation APNG and social MP4 must use the real extension workflow, not a manually overlaid translated frame. Open the real capture fixture in the Dalen Chrome profile, right-click the source image, choose `UGTBrowser Language Tools` -> `Translate image to English`, wait for the actual OpenAI image-edit result, and build the animation from fixed-crop screenshots of the real original/progress/final states.
 4. Serve the repo locally with `python -m http.server 8765 --bind 127.0.0.1` from the repo root.
-5. Capture fixtures in Chrome. For normal page fixtures, browser automation screenshots are fine. For browser-level context-menu imagery, use a deterministic HTML simulation and Chrome headless screenshot, e.g.:
-
-```powershell
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu --hide-scrollbars --window-size=1100,620 --screenshot="local\readme-capture\frames-v2\context-menu-full.png" "http://127.0.0.1:8765/local/readme-capture/context-menu-fixture.html"
-```
+5. Capture fixtures in Chrome. For normal page fixtures, browser automation screenshots are fine. For browser-level context-menu imagery, use a real native Chrome/Windows context-menu capture from the Dalen Chrome profile. Stable Chrome no longer accepts `--load-extension` for this workflow, so use a disposable profile such as `local/readme-capture/dalen-chrome-profile-manual`, open `chrome://extensions`, enable Developer mode, choose Load unpacked, and select the repo root containing `manifest.json`. Verify Chrome actually loaded UGTBrowser by checking for a DevTools target like `chrome-extension://<id>/src/background/main.js`; default/component extension workers such as `service_worker.js` are not UGTBrowser. The ignored `local/readme-capture/native-context-menu-fixture.html` fixture auto-selects Japanese text on load; recreate an equivalent fixture if missing. Open it from the local server, right-click the selected text, hover `UGTBrowser Language Tools`, and capture the desktop/native menu. If using all-screen capture on a multi-monitor desktop, crop strictly to the Chrome window and native menus so VS Code status bars, terminals, taskbars, account info, or other private desktop data do not leak. Do not replace this with a styled HTML simulation unless the README explicitly labels it as a mockup.
 
 6. Crop and assemble final media with Pillow. Use APNG for the README because it keeps true-color PNG frames and is well supported by modern browsers. Also generate `media/ugtbrowser_image_translation_social.mp4` from the same APNG frames and timing for social posting. Use ffmpeg H.264 with `-pix_fmt yuv420p`, `-movflags +faststart`, no audio, and a constant 30 fps timeline. The `imageio-ffmpeg` Python package is an acceptable way to get a local ffmpeg binary when one is not installed globally.
 7. Extract first/progress/final frames from the MP4 and visually compare them with the APNG preview frames. The MP4 should remain fixed-crop, readable, and free of obvious compression damage.
