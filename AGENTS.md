@@ -53,6 +53,8 @@ Image translation was added as a right-click image workflow:
 
 Still-image translations are tracked by request ID and may have multiple OpenAI image edit jobs in flight at once. The background registers the clicked image target before waiting on storage/settings reads so quick consecutive image translations are less likely to bind to a later right-click target. For normal image elements, the content script locks one translated display size from the original rendered rect and restores the page's original inline sizing when the user flips back to the original image; avoid reintroducing logic that bases each flip on the current mutated rect.
 
+Image translation errors should be visible to the user on the page. The content script keeps the inline failed overlay on the image when possible and also shows the normal UGTBrowser alert with the underlying error text. If the page/frame can no longer be reached, the background falls back to a Chrome notification instead of throwing after recording the debug error.
+
 Relevant code:
 
 - `src/shared/constants.js`: `CONTEXT_MENU_TRANSLATE_IMAGE`

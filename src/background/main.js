@@ -171,6 +171,39 @@ function openImageTranslationImage(imageDataUrl) {
   });
 }
 
+function showImageTranslationErrorNotification(kind, error) {
+  const isVideoFrame = kind === 'video-frame';
+  const title = isVideoFrame ? 'Video frame translation error' : 'Image translation error';
+  const fallback = isVideoFrame ? 'Video frame translation failed' : 'Image translation failed';
+
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: 'UGTBrowser',
+    message: `${title}: ${error || fallback}`,
+    priority: 1
+  }, (notificationId) => {
+    setTimeout(() => chrome.notifications.clear(notificationId), 5000);
+  });
+}
+
+async function sendImageTranslationError(tabId, frameId, requestId, error, kind = 'image') {
+  const message = error || (kind === 'video-frame' ? 'Video frame translation failed' : 'Image translation failed');
+
+  try {
+    await sendMessageToFrame(tabId, frameId, {
+      type: "UGT_IMAGE_TRANSLATION_ERROR",
+      requestId,
+      error: message
+    });
+    return true;
+  } catch (sendError) {
+    console.warn('Could not show image translation error on the page:', sendError.message || String(sendError));
+    showImageTranslationErrorNotification(kind, message);
+    return false;
+  }
+}
+
 /**
  * Handle TTS on restricted pages via offscreen document
  */
@@ -488,6 +521,10 @@ function setImageTranslationDebugResponse(details) {
   }
 }
 
+function getActiveImageTranslationKind(requestId) {
+  return activeImageTranslationRequests.get(requestId)?.request?.kind === 'video-frame' ? 'video-frame' : 'image';
+}
+
 async function handleOffscreenImageEditComplete(message) {
   const {
     requestId,
@@ -515,19 +552,16 @@ async function handleOffscreenImageEditComplete(message) {
 
   if (!response?.ok) {
     const error = response?.error || 'Content script did not apply the translated image.';
+    const kind = getActiveImageTranslationKind(requestId);
     setImageTranslationDebugResponse({
       requestId,
       status: 'error',
+      kind,
       elapsedMs,
       requestedSize,
       error
     });
-    await sendMessageToFrame(tabId, frameId, {
-      type: "UGT_IMAGE_TRANSLATION_ERROR",
-      requestId,
-      error
-    }).catch(() => null);
-    throw new Error(error);
+    await sendImageTranslationError(tabId, frameId, requestId, error, kind);
   }
 }
 
@@ -539,19 +573,23 @@ async function handleOffscreenImageEditError(message) {
     error,
     elapsedMs
   } = message;
+  const kind = getActiveImageTranslationKind(requestId);
 
   setImageTranslationDebugResponse({
     requestId,
+    kind,
     status: 'error',
     elapsedMs,
-    error: error || 'Image translation failed'
+    error: error || (kind === 'video-frame' ? 'Video frame translation failed' : 'Image translation failed')
   });
 
-  await sendMessageToFrame(tabId, frameId, {
-    type: "UGT_IMAGE_TRANSLATION_ERROR",
+  await sendImageTranslationError(
+    tabId,
+    frameId,
     requestId,
-    error: error || 'Image translation failed'
-  });
+    error || (kind === 'video-frame' ? 'Video frame translation failed' : 'Image translation failed'),
+    kind
+  );
 }
 
 // ========================================
@@ -1255,19 +1293,7 @@ async function handleImageTranslateMenuClick(info, tab) {
 
     if (!data.openaiApiKey) {
       const message = "Image translation requires an OpenAI API key. Add it in UGTBrowser Settings > API Keys.";
-      if (targetResult.target?.ok) {
-        await sendMessageToFrame(tab.id, frameId, {
-          type: "UGT_IMAGE_TRANSLATION_ERROR",
-          requestId,
-          error: message
-        }).catch(() => null);
-      } else {
-        chrome.tabs.sendMessage(tab.id, {
-          type: "UGT_SHOW_ERROR",
-          message,
-          errorContext: "API_KEY_ISSUE"
-        }, { frameId });
-      }
+      await sendImageTranslationError(tab.id, frameId, requestId, message);
       return;
     }
 
@@ -1393,23 +1419,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       error: error.message || String(error)
     });
 
-    try {
-      await sendMessageToFrame(tab.id, frameId, {
-        type: "UGT_IMAGE_TRANSLATION_ERROR",
-        requestId,
-        error: error.message || String(error)
-      });
-    } catch (sendError) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icon128.png',
-        title: 'UGTBrowser',
-        message: `Image translation error: ${error.message || String(error)}`,
-        priority: 1
-      }, (notificationId) => {
-        setTimeout(() => chrome.notifications.clear(notificationId), 5000);
-      });
-    }
+    await sendImageTranslationError(tab.id, frameId, requestId, error.message || String(error));
   }
 }
 
@@ -1543,23 +1553,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       error: error.message || String(error)
     });
 
-    try {
-      await sendMessageToFrame(tab.id, frameId, {
-        type: "UGT_IMAGE_TRANSLATION_ERROR",
-        requestId,
-        error: error.message || String(error)
-      });
-    } catch (sendError) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icon128.png',
-        title: 'UGTBrowser',
-        message: `Video frame translation error: ${error.message || String(error)}`,
-        priority: 1
-      }, (notificationId) => {
-        setTimeout(() => chrome.notifications.clear(notificationId), 5000);
-      });
-    }
+    await sendImageTranslationError(tab.id, frameId, requestId, error.message || String(error), 'video-frame');
   }
 }
 

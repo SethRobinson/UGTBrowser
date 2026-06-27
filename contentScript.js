@@ -2494,6 +2494,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       .ugt-image-translation-error {
         border-color: rgba(239, 68, 68, 0.95);
         animation: none;
+        z-index: 2147483646;
       }
       .ugt-image-translation-actions {
         position: fixed;
@@ -3772,12 +3773,18 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   function failImageTranslation(requestId, error) {
     const target = imageTranslationTargets.get(requestId);
+    const fallbackMessage = target?.kind === 'video-frame' ? 'Video frame translation failed.' : 'Image translation failed.';
+    const errorMessage = error || fallbackMessage;
+    const alertMessage = target?.kind === 'video-frame'
+      ? `Video frame translation failed:\n${errorMessage}`
+      : `Image translation failed:\n${errorMessage}`;
+
     if (!target) {
-      showCustomError(error || 'Image translation failed.', 'IMAGE_TRANSLATION');
+      showCustomError(alertMessage, 'IMAGE_TRANSLATION');
       return;
     }
 
-    console.warn('UGT image translation failed:', error || 'Unknown error');
+    console.warn('UGT image translation failed:', errorMessage);
     if (target.kind === 'video-frame') {
       restoreVideoFrameCaptureUi(target);
     }
@@ -3787,12 +3794,13 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       const card = target.overlay.querySelector('.ugt-image-translation-card');
       if (card) {
         const title = target.kind === 'video-frame' ? 'Video frame translation failed' : 'Image translation failed';
-        card.innerHTML = `<div class="ugt-image-translation-title">${title}</div><div class="ugt-image-translation-subtext">${escapeImageTranslationText(error || 'Unknown error')}</div>`;
+        card.innerHTML = `<div class="ugt-image-translation-title">${title}</div><div class="ugt-image-translation-subtext">${escapeImageTranslationText(errorMessage)}</div>`;
       }
+      showCustomError(alertMessage, 'IMAGE_TRANSLATION');
       setTimeout(() => hideImageTranslationOverlay(requestId), 9000);
     } else {
       hideImageTranslationOverlay(requestId);
-      showCustomError(error || 'Image translation failed.', 'IMAGE_TRANSLATION');
+      showCustomError(alertMessage, 'IMAGE_TRANSLATION');
     }
   }
 
