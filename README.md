@@ -36,15 +36,9 @@ Useful if the Chrome Web Store hasn't updated to the latest version yet:
 
 <div align="center">
   <a href="media/ugtbrowser_context_menu.png"><img src="media/ugtbrowser_context_menu.png" alt="UGTBrowser right-click menu options for selected Japanese text" width="760"/></a>
-</div>
-
-<div align="center">
   <a href="media/ugtbrowser_image_translation_compare.png"><img src="media/ugtbrowser_image_translation_compare.png" alt="Before and after of UGTBrowser translating text in an image in-place" width="760"/></a>
-</div>
-
-<div align="center">
-  <a href="media/ugtbrowser_translation_notes.png"><img src="media/ugtbrowser_translation_notes.png" alt="Inline translation with cultural notes and follow-up chat" width="400"/></a>
-  <a href="media/ugtbrowser_settings.png"><img src="media/ugtbrowser_settings.png" alt="UGTBrowser settings page" width="400"/></a>
+  <a href="media/ugtbrowser_translation_notes.png"><img src="media/ugtbrowser_translation_notes.png" alt="Inline translation with cultural notes and follow-up chat" width="760"/></a>
+  <a href="media/ugtbrowser_settings.png"><img src="media/ugtbrowser_settings.png" alt="UGTBrowser settings page" width="760"/></a>
 </div>
 
 ## How to Use
@@ -78,9 +72,6 @@ This project was developed with significant assistance from AI tools.  I mean, y
 * Clarified separate provider settings for text and image translation
 * Fixed concurrent image translation handling and now surface errors on the page
 
-**v2.1.0**
-* Added image translation with in-place replacement, preview, and original/translated flip controls
-* Added still video-frame translation overlays
 
 **v2.0.0**
 * Added Text-to-Speech support (ElevenLabs and Google Cloud TTS)
