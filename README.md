@@ -39,7 +39,7 @@ Useful if the Chrome Web Store hasn't updated to the latest version yet:
 </div>
 
 <div align="center">
-  <a href="media/ugtbrowser_image_translation.png"><img src="media/ugtbrowser_image_translation.png" alt="UGTBrowser translating an image in-place" width="760"/></a>
+  <a href="media/ugtbrowser_image_translation_compare.png"><img src="media/ugtbrowser_image_translation_compare.png" alt="Before and after of UGTBrowser translating text in an image in-place" width="760"/></a>
 </div>
 
 <div align="center">
