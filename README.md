@@ -71,7 +71,14 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ## Version History
 
-**v2.1.0** (Current)
+**v2.2.0** (Current)
+* Added support for GPT-5.5 and Claude Opus 4.8 models
+* Added "Translate Only" option for quick translations without cultural notes
+* Added customizable image translation prompt setting
+* Clarified separate provider settings for text and image translation
+* Fixed concurrent image translation handling and now surface errors on the page
+
+**v2.1.0**
 * Added image translation with in-place replacement, preview, and original/translated flip controls
 * Added still video-frame translation overlays
 
