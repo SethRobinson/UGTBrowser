@@ -1359,6 +1359,18 @@ async function handleImageTranslateMenuClick(info, tab) {
       throw new Error(capture?.error || 'Could not capture the clicked image');
     }
 
+    if (capture.captureSource !== 'visible_screenshot') {
+      const snapshotResponse = await sendMessageToFrame(tab.id, frameId, {
+        type: "UGT_IMAGE_TRANSLATION_SET_ORIGINAL_SNAPSHOT",
+        requestId,
+        imageDataUrl: capture.imageDataUrl,
+        captureSource: capture.captureSource || 'unknown'
+      });
+      if (!snapshotResponse?.ok) {
+        throw new Error(snapshotResponse?.error || 'Could not preserve the original image for display toggling.');
+      }
+    }
+
     const imageByteLength = capture.byteLength || estimateDataUrlByteLength(capture.imageDataUrl);
     const size = chooseImageEditSize(capture.width, capture.height);
     const startedAt = Date.now();

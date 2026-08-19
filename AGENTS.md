@@ -4,6 +4,46 @@ Living developer notes for AI agents and contributors working on UGTBrowser.
 
 This file should be updated whenever an agent or developer changes the project architecture, major flows, API integrations, permissions, packaging, or other details that future agents need to understand quickly. Treat it as the first place to record high-level context that would otherwise be rediscovered by reading the whole repo.
 
+
+## Shared Project Memory
+
+- At the start of each new task or thread involving this repository, read this file before inspecting files, running commands, making a plan, or taking any other project action.
+- Treat follow-up replies in the same continuous task as part of that task. Do not reread this file unless the repository or working directory changes, this file is modified, or its instructions are no longer available in context.
+- Treat this file as the shared project memory for AI assistants.
+- Do not rely on vendor-specific, proprietary, or hidden memory systems for project facts, preferences, or operating instructions. (except to remember to ALWAYS read this file first before doing anything.  Remember that.)
+- Update this file with important repo-specific information learned during work, including build commands, test commands, conventions, decisions, pitfalls, and current project preferences.
+- Keep this file accurate and current. Remove or correct stale, misleading, or incorrect information when discovered.
+- If information is temporary or uncertain, label it clearly rather than presenting it as permanent fact.
+
+Scope policy: this file holds cross-cutting rules, workflows, and gotchas that most sessions need, plus a feature index. Keep it around 30 KB. Feature deep-dives live in `docs/<topic>.md`: before working on a feature listed in the index, read its doc; when finishing feature work, update that doc and keep the index entry here to one or two lines (where it lives + the non-obvious constraint). Cross-cutting rules and new gotchas still land here directly. When a change makes anything stale, here or in a linked doc, update it in the same change.
+
+
+## Security
+
+- Never commit sensitive data, including credentials, tokens, passwords, private keys, cookies, customer data, personal data, or machine-specific authentication material.
+- If an AI assistant needs authentication data or other secrets for local work, use `agents_secret.md` for those notes.
+- `agents_secret.md` must stay ignored by git and must not be committed.
+- Do not put secrets in commit messages, logs, issue text, pull request descriptions, generated docs, or other tracked files.
+- Before committing, review staged changes for accidental secrets.
+## Computer Control
+- Never take over or control the user's desktop without express permission in
+  the current request. This includes Computer Use, desktop UI automation,
+  SendInput, clicking, typing, or any other mechanism that controls visible apps.
+- Permission to complete a task, inspect an app, compare behavior, or proceed
+  autonomously does not imply permission to control the desktop.
+
+## Git
+
+- Create a local git repo and use it.  Commit features/etc as needed.
+- Never add OpenAI/Codex/Claude etc as a co-author on git commits.
+- NEVER `git push` unless explicitly told to push. "Commit" means commit locally only; committing is not permission to push.
+
+## Asset creation tools
+
+- If seths_game_asset_creation.txt exists in the same folder as this file, and you are asked to generate assets, read it
+
+
+
 ## Project Overview
 
 UGTBrowser is a Chrome Manifest V3 browser extension for language tools on webpages. The main user workflow is right-clicking selected text and using AI providers to translate, create lessons, ask follow-up questions, or play text-to-speech. In the selected-text context menu, the plain `Translate to X with Y` entry is translate-only; the `Translate to X with Y (With Notes)` entry uses the configured custom instructions and enables follow-up notes/chat behavior. Context menus are initialized on install/update and Chrome startup.
@@ -51,7 +91,9 @@ Image translation was added as a right-click image workflow:
 11. The content script replaces the original image `src`/paint layer with the returned `data:image/png;base64,...` result and freezes the displayed dimensions to reduce layout shift. Some sites, notably X/Twitter, render the visible image on a sibling CSS `background-image` layer while keeping the real `<img>` transparent for browser image behavior; replacement must update that matching background layer too.
 12. After a successful replacement, the content script keeps a compact collapsed action control on the image. Hovering/focusing/clicking it reveals magnifier and flip actions. The magnifier action opens the translated data URL in a normal Chrome window; the flip action toggles the page image between original and translated states, including X/Twitter CSS background layers.
 
-Still-image translations are tracked by request ID and may have multiple OpenAI image edit jobs in flight at once. The background registers the clicked image target before waiting on storage/settings reads so quick consecutive image translations are less likely to bind to a later right-click target. For normal image elements, the content script locks one translated display size from the original rendered rect and restores the page's original inline sizing when the user flips back to the original image; avoid reintroducing logic that bases each flip on the current mutated rect.
+Still-image translations are tracked by request ID and may have multiple OpenAI image edit jobs in flight at once. The background registers the clicked image target before waiting on storage/settings reads so quick consecutive image translations are less likely to bind to a later right-click target. For normal image elements, the content script locks one translated display size from the original rendered rect and restores the page's original inline sizing when the user flips back to the original image; avoid reintroducing logic that bases each flip on the current mutated rect. When a full image capture succeeds, keep its data URL on the target and use those captured pixels for the original-image flip instead of refetching the page's possibly temporary or invalidated source URL. Visible-screenshot fallback captures are not full-image snapshots and must not replace the original display.
+
+Image translation completion and failure are terminal per request. The content script ignores any delayed offscreen progress relay after a request settles so a stale processing overlay cannot reappear over a finished image. If a translation completes while its image is offscreen, remove the hidden progress overlay immediately and create the persistent image actions; do not depend on a delayed success-animation timer.
 
 Image translation errors should be visible to the user on the page. The content script keeps the inline failed overlay on the image when possible and also shows the normal UGTBrowser alert with the underlying error text. If the page/frame can no longer be reached, the background falls back to a Chrome notification instead of throwing after recording the debug error.
 
