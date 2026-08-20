@@ -893,7 +893,6 @@ function saveOptions() {
     settings: { 
       provider: provider, 
       model: finalModel, 
-      apiKey: provider === 'openai' ? openaiApiKey : (provider === 'anthropic' ? anthropicApiKey : geminiApiKey),
       promptTemplate: resolvedPromptForBackground, // Store the RESOLVED prompt for the background script
       targetLang: languageMode === 'custom' ? customLangText : (standardLanguageText || 'English'),
       streaming: true,

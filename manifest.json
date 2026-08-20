@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "102",
   "name": "UGTBrowser",
   "description": "Inline translation of highlighted text using state-of-the-art AI models (OpenAI, Anthropic Claude, Google Gemini).",
   "version": "2.2.1",

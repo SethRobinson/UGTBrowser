@@ -68,7 +68,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
   }
   
   // Handle the CREATE_LESSON message from the context menu
-  function handleCreateLesson(selectedText, lessonPrompt) {
+  function handleCreateLesson(selectedText) {
     if (!selectedText || !selectedText.trim()) {
       console.warn('CREATE_LESSON called without text');
       return;
@@ -164,8 +164,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       type: 'LESSON_REQUEST',
       payload: {
         sessionId: sessionId,
-        selectedText: selectedText,
-        lessonPrompt: lessonPrompt
+        selectedText: selectedText
       }
     }, (response) => {
       if (chrome.runtime.lastError) {
@@ -3887,11 +3886,11 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "TRANSLATE_SELECTION") {
-      handleTranslate(msg.text, msg.settings, msg.simpleMode);
+      handleTranslate(msg.text, msg.settings, msg.simpleMode, msg.requestId);
       sendResponse();
       return true;
     } else if (msg.type === "CREATE_LESSON") {
-      handleCreateLesson(msg.text, msg.lessonPrompt);
+      handleCreateLesson(msg.text);
       sendResponse();
       return true;
     } else if (msg.type === "ASK_ABOUT") {
@@ -4864,7 +4863,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   });
 
-  async function handleTranslate(selectedText, settings, simpleMode = false) {
+  async function handleTranslate(selectedText, settings = {}, simpleMode = false, requestId = '') {
     // selectedText is info.selectionText, so it *should* be valid if we got this far.
     if (!selectedText || !selectedText.trim()) {
       console.warn("UGTBrowser: handleTranslate called without selectedText. This shouldn't happen if background script validated selection.");
@@ -4873,9 +4872,6 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return;
     }
     
-    // Store simpleMode for use in UI decisions later
-    const isSimpleMode = simpleMode;
-
     let activeRange = savedRange; // Prioritize the range captured by selectionchange
 
     if (!activeRange) {
@@ -4993,7 +4989,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
     streamingRange = range; 
     currentStreamingText = ""; // Initialize for the new translation stream
-    currentTranslationSettings = { ...settings }; // Store settings for current translation
+    currentTranslationSettings = {
+      provider: settings.provider || 'openai',
+      targetLang: settings.targetLang || 'English'
+    };
 
     //console.log("Sending text payload for translation construction in background.js:", textPayload);
 
@@ -5002,19 +5001,19 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         {
           type: "FETCH_TRANSLATION",
           payload: { 
-            textPayload: textPayload, // NEW: sending raw payload for background.js to build prompt
-            settings: { 
-              ...settings, 
-              streaming: true,
-              targetLang: settings.targetLang || "English" // Ensure targetLang is passed
-            },
-            simpleMode: isSimpleMode // Skip creative task and follow-up chat when true
+            requestId,
+            textPayload
           }
         },
         (resp) => {
             if (chrome.runtime.lastError) {
                 console.error("Error sending FETCH_TRANSLATION:", chrome.runtime.lastError.message);
                 showCustomError("Error initiating translation: " + chrome.runtime.lastError.message, "API_KEY_ISSUE");
+                hideOverlay();
+                return;
+            }
+            if (resp?.success === false) {
+                showCustomError(resp.error || 'Translation request was rejected.');
                 hideOverlay();
                 return;
             }
@@ -5801,10 +5800,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     switch (action) {
       case 'lesson':
-        // Get lesson prompt from storage, then create lesson
-        chrome.storage.local.get(['lessonPrompt'], (data) => {
-          handleCreateLesson(text, data.lessonPrompt);
-        });
+        handleCreateLesson(text);
         break;
         
       case 'ask':
@@ -5902,26 +5898,18 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     container.appendChild(translatePanel);
     
-    // Get settings and request translation
-    chrome.storage.local.get(null, (data) => {
-      const settings = data.settings || {};
-      const targetLang = settings.targetLang || 'English';
-      
-      // Request simple translation from background
-      chrome.runtime.sendMessage({
-        type: 'STANDALONE_TRANSLATE',
-        sessionId: 'translate_' + Date.now(),
-        text: text,
-        settings: settings
-      });
-      
-      // Store reference for message handling
-      translatePanel.dataset.targetLang = targetLang;
+    const sessionId = 'translate_' + Date.now();
+
+    // Request translation from the trusted background context.
+    chrome.runtime.sendMessage({
+      type: 'STANDALONE_TRANSLATE',
+      sessionId,
+      text
     });
     
     // Listen for translation result
     const messageHandler = (msg) => {
-      if (msg.type === 'STANDALONE_RESULT' || msg.type === 'STANDALONE_ERROR') {
+      if ((msg.type === 'STANDALONE_RESULT' || msg.type === 'STANDALONE_ERROR') && msg.sessionId === sessionId) {
         clearInterval(spinnerInterval);
         
         if (msg.type === 'STANDALONE_ERROR') {

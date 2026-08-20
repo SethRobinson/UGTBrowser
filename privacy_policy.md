@@ -1,6 +1,6 @@
 # Privacy Policy for UGTBrowser Chrome Extension
 
-**Last Updated:** May 8th, 2025
+**Last Updated:** August 20th, 2026
 
 ## 1. Introduction
 
@@ -16,25 +16,29 @@ Robinson Technologies Corporation **does not** collect, store, or transmit any o
 
 ## 3. Information You Provide and How It's Used
 
-To use the translation features of UGTBrowser, you are required to provide your own API keys for the respective LLM services you wish to use (OpenAI, Anthropic, Google Gemini).
+To use UGTBrowser provider features, you provide your own API keys for the services you choose, including OpenAI, Anthropic, Google Gemini, ElevenLabs, and Google Cloud Text-to-Speech.
 
 *   **API Keys:**
     *   Your API keys are stored locally on your computer using Chrome's storage API (`chrome.storage.local`). They are not synced with the cloud or across your devices.
-    *   These keys are used solely by the extension to authenticate your requests directly with the chosen LLM provider.
-    *   **Your API keys are never transmitted to Robinson Technologies Corporation or any other third party by the UGTBrowser extension itself.**
-*   **Highlighted Text & LLM Debug Data:**
+    *   Stored credentials are restricted to trusted extension contexts, including the options page, background service worker, and offscreen document. Webpage content scripts cannot read the credential storage area and are not sent provider keys.
+    *   These keys are used solely to authenticate requests directly with the provider needed for a feature you invoke.
+    *   **Your API keys are never transmitted to Robinson Technologies Corporation. They are sent only to the corresponding provider as authentication for your requested operation.**
+*   **Selected Content & LLM Debug Data:**
     *   When you select text and choose to translate it, that selected text is sent directly from your browser to the API of the LLM provider you have configured (e.g., OpenAI, Anthropic, Google Gemini).
-    *   This text is sent solely for the purpose of obtaining a translation.
+    *   Images, captured video frames, or text-to-speech content are sent to the corresponding provider only when you invoke those features.
+    *   This content is sent solely for the purpose of completing the requested operation.
     *   For the "LLM Debug" feature in the extension's options, UGTBrowser temporarily keeps the content of the last request sent to the LLM (which includes the highlighted text and the constructed prompt) and the last response received from the LLM in your browser's memory.
     *   This debug information is only accessible via the options page and is cleared when your browser session ends (e.g., when the browser is closed) or when a new translation is initiated. It is not permanently stored on your computer or synced.
 
 ## 4. Third-Party LLM Services
 
-UGTBrowser acts as an interface to send your selected text and API key to third-party LLM providers for translation. These services are:
+UGTBrowser acts as an interface to send requested content and provider authentication directly to third-party AI services. These services include:
 
 *   OpenAI (services like GPT models)
 *   Anthropic (services like Claude models)
 *   Google (services like Gemini models)
+*   ElevenLabs (text-to-speech services)
+*   Google Cloud (text-to-speech services)
 
 These third-party services have their own privacy policies and terms of service that govern how they collect, use, and store the data (including the text you send for translation and potentially your API key usage). We strongly recommend that you review the privacy policies of these providers:
 
@@ -46,7 +50,7 @@ Robinson Technologies Corporation is not responsible for the data practices of t
 
 ## 5. Data Security
 
-We take reasonable precautions by relying on Chrome's built-in storage mechanisms for API keys. However, as the extension is open source, you are encouraged to review the code to understand how data is handled. The security of your API keys also depends on the overall security of your computer and your Google Chrome profile.
+We rely on Chrome's built-in storage mechanisms and restrict local credential storage to trusted extension contexts. Provider requests are made only from the background service worker or another extension-owned context. However, the security of your API keys also depends on the overall security of your computer and Google Chrome profile.
 
 ## 6. Open Source
 

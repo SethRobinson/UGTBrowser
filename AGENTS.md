@@ -60,6 +60,7 @@ The extension intentionally uses direct browser APIs and direct provider HTTP re
 - `src/background/api/anthropic.js`: direct Anthropic HTTP calls.
 - `src/background/api/gemini.js`: direct Gemini HTTP calls.
 - `src/background/api/tts.js`: direct ElevenLabs and Google TTS HTTP calls.
+- `src/background/credential-security.js`: trusted storage initialization, legacy embedded-key migration, safe content settings, provider key resolution, and sender-role checks.
 - `options.html`, `options.js`, `options.css`: settings UI and local storage for provider keys, models, target language, prompts, and TTS settings.
 - `package-extension.js`: packages the extension into `dist/UGTBrowser-v<version>.zip`.
 
@@ -147,7 +148,11 @@ Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key
 - `googleTtsApiKey`
 - `imageTranslationPromptTemplate`
 
-Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context.
+Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context. `chrome.storage.local` is restricted to `TRUSTED_CONTEXTS`, `contentScript.js` must not access storage directly, and the persisted nested `settings` object must never contain an `apiKey` field. Provider keys stay in their top-level storage fields and are resolved by `src/background/credential-security.js`.
+
+Selected-text translation uses a single-use 60-second authorization created by the context-menu handler and bound to the initiating tab and frame. The background sends content scripts only `{ provider, targetLang }`; content returns the authorization ID and segmented text, then the background reloads trusted settings and the key. Keep credentials as dedicated background-only function arguments rather than placing them in general settings objects. Debug and TTS-test messages are options-page-only, and image-edit completion/progress messages are offscreen-document-only.
+
+The trusted storage API requires Chrome 102 or newer, which is enforced by `manifest.json`.
 
 The settings UI separates `Text Translation LLM` from `API Keys`. The text provider/model controls choose the LLM for selected-text translation, notes, lessons, and follow-up chat. The API Keys section shows OpenAI, Anthropic, and Gemini credentials together so each key is entered once. Image and video-frame translation always use OpenAI image editing and require `openaiApiKey` regardless of the selected text provider.
 

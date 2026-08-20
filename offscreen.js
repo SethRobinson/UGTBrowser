@@ -6,7 +6,13 @@ let currentAudio = null;
 const IMAGE_EDIT_TIMEOUT_MS = 180000;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const isTrustedNonTabSender = sender?.id === chrome.runtime.id && !sender?.tab;
+
   if (message.type === 'OFFSCREEN_PLAY_AUDIO') {
+    if (!isTrustedNonTabSender) {
+      sendResponse({ success: false, error: 'Unauthorized offscreen message sender.' });
+      return false;
+    }
     playAudio(message.audio, message.mimeType)
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error.message }));
@@ -14,12 +20,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === 'OFFSCREEN_STOP_AUDIO') {
+    if (!isTrustedNonTabSender) {
+      sendResponse({ success: false, error: 'Unauthorized offscreen message sender.' });
+      return false;
+    }
     stopAudio();
     sendResponse({ success: true });
     return false;
   }
 
   if (message.type === 'OFFSCREEN_OPENAI_IMAGE_EDIT_START') {
+    if (!isTrustedNonTabSender) {
+      sendResponse({ success: false, error: 'Unauthorized offscreen message sender.' });
+      return false;
+    }
     runImageEdit(message.payload)
       .then((result) => {
         chrome.runtime.sendMessage({

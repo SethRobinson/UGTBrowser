@@ -93,7 +93,7 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ## Privacy
 
-API keys and settings are stored locally in your browser only. Nothing is sent except text to your chosen LLM provider. See [Privacy Policy](privacy_policy.md).
+API keys and settings are stored locally in your browser. Provider credentials are restricted to trusted extension pages, the background service worker, and the offscreen document. They are never sent to webpage content scripts. Text, images, or speech content is sent only to the provider needed for the feature you invoke. See [Privacy Policy](privacy_policy.md).
 
 ## License
 

@@ -39,6 +39,18 @@ import {
 
 import { ensureOffscreenDocument, playAudioViaOffscreen, startImageEditViaOffscreen } from './offscreen-manager.js';
 import { buildChatPrompt, buildLessonChatPrompt, buildAskPrompt } from './prompt-builders.js';
+import {
+  buildContentTranslationSettings,
+  extractContentTranslationRequest,
+  initializeCredentialStorageSecurity,
+  isContentOperationSender,
+  isOffscreenSender,
+  isOptionsSender,
+  isSameExtensionSender,
+  isStandaloneSender,
+  loadTextProviderContext
+} from './credential-security.js';
+import { TranslationAuthorizationStore } from './translation-authorization.js';
 
 // ========================================
 // STATE MANAGEMENT
@@ -56,6 +68,26 @@ let lastLLMResponse = null;
 let lastImageTranslationRequest = null;
 let lastImageTranslationResponse = null;
 const activeImageTranslationRequests = new Map();
+const translationAuthorizations = new TranslationAuthorizationStore();
+
+let credentialStorageInitializationError = null;
+const credentialStorageReady = initializeCredentialStorageSecurity(chrome.storage.local)
+  .catch((error) => {
+    credentialStorageInitializationError = error;
+    console.error('Failed to secure provider credential storage:', error);
+  });
+
+async function ensureCredentialStorageReady() {
+  await credentialStorageReady;
+  if (credentialStorageInitializationError) {
+    throw credentialStorageInitializationError;
+  }
+}
+
+async function loadTrustedTextProviderContext() {
+  await ensureCredentialStorageReady();
+  return loadTextProviderContext(chrome.storage.local);
+}
 
 // ========================================
 // HEARTBEAT AND CONNECTION MONITORING
@@ -209,6 +241,7 @@ async function sendImageTranslationError(tabId, frameId, requestId, error, kind 
  * Handle TTS on restricted pages via offscreen document
  */
 async function handleTTSForRestrictedPage(text) {
+  await ensureCredentialStorageReady();
   const data = await chrome.storage.local.get([
     'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
     'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
@@ -299,16 +332,6 @@ async function getSelectionText(info, tab) {
       }
     );
   });
-}
-
-/**
- * Get API key for the specified provider
- */
-function getApiKeyForProvider(provider, data) {
-  if (provider === 'openai') return data.openaiApiKey;
-  if (provider === 'anthropic') return data.anthropicApiKey;
-  if (provider === 'gemini') return data.geminiApiKey;
-  return null;
 }
 
 function getImageTranslationTargetLanguage(data) {
@@ -597,8 +620,8 @@ async function handleOffscreenImageEditError(message) {
 // TRANSLATION FUNCTIONS
 // ========================================
 
-async function fetchTranslationStreaming(promptText, settings, port, abortSignal = null) {
-  const { provider = "openai", model, apiKey } = settings;
+async function fetchTranslationStreaming(promptText, settings, apiKey, port, abortSignal = null) {
+  const { provider = "openai", model } = settings;
   
   lastLLMRequest = {
     timestamp: new Date().toISOString(),
@@ -651,8 +674,8 @@ async function fetchTranslationStreaming(promptText, settings, port, abortSignal
   }
 }
 
-async function fetchTranslation(promptText, settings) {
-  const { provider = "openai", model, apiKey, internalBatch } = settings;
+async function fetchTranslation(promptText, settings, apiKey) {
+  const { provider = "openai", model, internalBatch } = settings;
   
   lastLLMRequest = {
     timestamp: new Date().toISOString(),
@@ -705,18 +728,40 @@ async function fetchTranslation(promptText, settings) {
 // MESSAGE HANDLERS
 // ========================================
 
+const extensionUrl = (path) => chrome.runtime.getURL(path);
+
+function rejectUnauthorizedMessage(sendResponse) {
+  sendResponse({ success: false, error: 'Unauthorized extension message sender.' });
+  return false;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!isSameExtensionSender(sender, chrome.runtime.id)) {
+    return false;
+  }
+
   if (message.type === "FETCH_TRANSLATION") {
-    handleTranslationMessage(message, sender, sendResponse);
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleTranslationMessage(message, sender, sendResponse)
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
     return true;
   }
   
   if (message.type === "OPEN_SETTINGS") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl) &&
+        !isOptionsSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.runtime.openOptionsPage();
     return false;
   }
 
   if (message.type === "UGT_OPEN_IMAGE_TRANSLATION_IMAGE") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     openImageTranslationImage(message.imageDataUrl)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
@@ -724,6 +769,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === "GET_LAST_LLM_DATA") {
+    if (!isOptionsSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     sendResponse({
       lastRequest: lastLLMRequest,
       lastResponse: lastLLMResponse,
@@ -735,6 +783,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_COMPLETE") {
+    if (!isOffscreenSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleOffscreenImageEditComplete(message)
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
@@ -742,6 +793,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_PROGRESS") {
+    if (!isOffscreenSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     sendImageTranslationProgress(message.tabId, message.frameId ?? 0, message.requestId, message.progress || {})
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
@@ -749,6 +803,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "OFFSCREEN_OPENAI_IMAGE_EDIT_ERROR") {
+    if (!isOffscreenSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleOffscreenImageEditError(message)
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error.message || String(error) }));
@@ -757,94 +814,181 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   
   // Relay messages to content script
   if (message.type === "UGT_SHOW_OVERLAY_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_OVERLAY", provider: message.provider });
     return;
   }
   if (message.type === "UGT_HIDE_OVERLAY_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_HIDE_OVERLAY", force: message.force });
     return;
   }
   if (message.type === "UGT_SHOW_ERROR_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_SHOW_ERROR", message: message.message, errorContext: message.errorContext });
     return;
   }
   if (message.type === "UGT_UPDATE_OVERLAY_PREVIEW_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_UPDATE_OVERLAY_PREVIEW", text: message.text });
     return;
   }
   if (message.type === "UGT_TRANSLATION_COMPLETE_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_TRANSLATION_COMPLETE", provider: message.provider });
     return;
   }
   if (message.type === "UGT_OPEN_PREVIEW_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_OPEN_PREVIEW", text: message.text });
     return;
   }
   if (message.type === "UGT_HIDE_TTS_OVERLAY_RELAY") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     chrome.tabs.sendMessage(sender.tab.id, { type: "UGT_HIDE_TTS_OVERLAY" });
     return;
   }
   
   // TTS test handlers
   if (message.type === "TEST_TTS") {
+    if (!isOptionsSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleTTSTest(message, sendResponse);
     return true;
   }
   if (message.type === "TEST_GOOGLE_TTS") {
+    if (!isOptionsSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleGoogleTTSTest(message, sendResponse);
     return true;
   }
   
   if (message.type === "OFFSCREEN_AUDIO_ENDED") {
+    if (!isOffscreenSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     console.log("Offscreen audio playback completed");
     return false;
   }
   
   if (message.type === "STANDALONE_TRANSLATE") {
-    handleStandaloneTranslate(message, sendResponse);
+    if (!isStandaloneSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleStandaloneTranslate(message, sendResponse)
+      .catch((error) => {
+        chrome.runtime.sendMessage({
+          type: 'STANDALONE_ERROR',
+          sessionId: message.sessionId,
+          error: error.message || String(error)
+        });
+        sendResponse({ status: 'error', error: error.message || String(error) });
+      });
     return true;
   }
   
   // Chat followup handler
   if (message.type === "CHAT_FOLLOWUP") {
-    handleChatFollowup(message, sender, sendResponse);
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleChatFollowup(message, sender, sendResponse)
+      .catch((error) => sendResponse({ status: 'error', error: error.message || String(error) }));
     return true;
   }
   if (message.type === "CHAT_CANCEL") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleChatCancel(message, sendResponse);
     return true;
   }
   
   // Lesson handlers
   if (message.type === "LESSON_REQUEST") {
-    handleLessonRequest(message, sender, sendResponse);
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleLessonRequest(message, sender, sendResponse)
+      .catch((error) => sendResponse({ status: 'error', error: error.message || String(error) }));
     return true;
   }
   if (message.type === "LESSON_FOLLOWUP") {
-    handleLessonFollowup(message, sender, sendResponse);
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleLessonFollowup(message, sender, sendResponse)
+      .catch((error) => sendResponse({ status: 'error', error: error.message || String(error) }));
     return true;
   }
   if (message.type === "LESSON_CANCEL") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleLessonCancel(message, sendResponse);
     return true;
   }
   
   // Ask handlers
   if (message.type === "ASK_REQUEST") {
-    handleAskRequest(message, sender, sendResponse);
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
+    handleAskRequest(message, sender, sendResponse)
+      .catch((error) => sendResponse({ status: 'error', error: error.message || String(error) }));
     return true;
   }
   if (message.type === "ASK_CANCEL") {
+    if (!isContentOperationSender(sender, chrome.runtime.id, extensionUrl)) {
+      return rejectUnauthorizedMessage(sendResponse);
+    }
     handleAskCancel(message, sendResponse);
     return true;
   }
 });
 
-function handleTranslationMessage(message, sender, sendResponse) {
-  const { textPayload, settings, simpleMode } = message.payload;
+async function handleTranslationMessage(message, sender, sendResponse) {
+  const { requestId, textPayload } = extractContentTranslationRequest(message.payload);
+  const authorization = translationAuthorizations.consume(requestId, {
+    tabId: sender.tab.id,
+    frameId: sender.frameId ?? 0
+  });
+
+  if (!authorization) {
+    sendResponse({ success: false, error: 'Translation request is missing, expired, or already used.' });
+    return;
+  }
+
+  if (typeof textPayload !== 'string' || !textPayload.trim()) {
+    sendResponse({ success: false, error: 'Translation text is missing.' });
+    return;
+  }
+
+  const { settings, apiKey, provider } = await loadTrustedTextProviderContext();
+  const simpleMode = authorization.simpleMode;
+
+  if (!apiKey) {
+    sendResponse({ success: false, error: `No API key configured for ${provider}. Please check your settings.` });
+    return;
+  }
   
   let actualPromptText = "";
-  const provider = settings.provider || "openai";
   const targetLang = settings.targetLang || "English";
 
   // In simpleMode, always use the simple unified prompt without creative tasks
@@ -906,7 +1050,7 @@ function handleTranslationMessage(message, sender, sendResponse) {
       }
     });
     
-    fetchTranslationStreaming(actualPromptText, settings, port, abortController.signal)
+    fetchTranslationStreaming(actualPromptText, settings, apiKey, port, abortController.signal)
       .then(() => {
         if (!abortController.signal.aborted) {
           try {
@@ -931,7 +1075,7 @@ function handleTranslationMessage(message, sender, sendResponse) {
     
     sendResponse({ status: "streaming_started" });
   } else {
-    fetchTranslation(actualPromptText, settings)
+    fetchTranslation(actualPromptText, settings, apiKey)
       .then(result => sendResponse({ success: true, result }))
       .catch(error => {
         console.error("Translation error:", error);
@@ -956,14 +1100,8 @@ function handleGoogleTTSTest(message, sendResponse) {
 
 async function handleStandaloneTranslate(message, sendResponse) {
   const { sessionId, text } = message;
-  
-  const data = await chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey']);
-  const storedSettings = data.settings || {};
-  const provider = data.selectedProvider || storedSettings.provider || 'openai';
-  const model = storedSettings.model;
-  const targetLang = storedSettings.targetLang || 'English';
-  
-  const apiKey = getApiKeyForProvider(provider, data);
+  const { settings, provider, model, apiKey } = await loadTrustedTextProviderContext();
+  const targetLang = settings.targetLang || 'English';
   
   if (!apiKey) {
     chrome.runtime.sendMessage({
@@ -971,6 +1109,7 @@ async function handleStandaloneTranslate(message, sendResponse) {
       sessionId,
       error: `No API key configured for ${provider}. Please check your settings.`
     });
+    sendResponse({ status: 'error', error: 'No API key configured.' });
     return;
   }
   
@@ -979,7 +1118,7 @@ async function handleStandaloneTranslate(message, sendResponse) {
   try {
     let result;
     if (provider === 'openai') result = await fetchFromOpenAI(prompt, model, apiKey);
-    else if (provider === 'anthropic') result = await fetchFromAnthropic(prompt, model, apiKey, storedSettings);
+    else if (provider === 'anthropic') result = await fetchFromAnthropic(prompt, model, apiKey, settings);
     else if (provider === 'gemini') result = await fetchFromGemini(prompt, model, apiKey);
     
     chrome.runtime.sendMessage({ type: 'STANDALONE_RESULT', sessionId, content: result });
@@ -999,11 +1138,7 @@ async function handleChatFollowup(message, sender, sendResponse) {
     return;
   }
   
-  const data = await chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey']);
-  const settings = data.settings || {};
-  const provider = data.selectedProvider || settings.provider || 'openai';
-  const model = settings.model;
-  const apiKey = getApiKeyForProvider(provider, data);
+  const { settings, provider, model, apiKey } = await loadTrustedTextProviderContext();
   
   if (!apiKey) {
     chrome.tabs.sendMessage(sender.tab.id, { type: "CHAT_STREAM_ERROR", sessionId, error: `No API key configured for ${provider}. Please check your settings.` }, { frameId: sender.frameId });
@@ -1043,7 +1178,7 @@ function handleChatCancel(message, sendResponse) {
 }
 
 async function handleLessonRequest(message, sender, sendResponse) {
-  const { sessionId, selectedText, lessonPrompt } = message.payload;
+  const { sessionId, selectedText } = message.payload;
   
   if (!sessionId) {
     chrome.tabs.sendMessage(sender.tab.id, { type: "LESSON_STREAM_ERROR", sessionId: null, error: "Internal error: No session ID provided" }, { frameId: sender.frameId });
@@ -1051,11 +1186,8 @@ async function handleLessonRequest(message, sender, sendResponse) {
     return;
   }
   
-  const data = await chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey']);
-  const settings = data.settings || {};
-  const provider = data.selectedProvider || settings.provider || 'openai';
-  const model = settings.model;
-  const apiKey = getApiKeyForProvider(provider, data);
+  const { settings, provider, model, apiKey } = await loadTrustedTextProviderContext();
+  const lessonData = await chrome.storage.local.get(['lessonPrompt']);
   
   if (!apiKey) {
     chrome.tabs.sendMessage(sender.tab.id, { type: "LESSON_STREAM_ERROR", sessionId, error: `No API key configured for ${provider}. Please check your settings.` }, { frameId: sender.frameId });
@@ -1065,6 +1197,7 @@ async function handleLessonRequest(message, sender, sendResponse) {
   const abortController = new AbortController();
   activeChatSessions.set(sessionId, { abortController, tabId: sender.tab.id, frameId: sender.frameId });
   
+  const lessonPrompt = lessonData.lessonPrompt || defaultLessonPrompt;
   const fullPrompt = lessonPrompt.replace('{0}', selectedText);
   
   try {
@@ -1093,11 +1226,7 @@ async function handleLessonFollowup(message, sender, sendResponse) {
     return;
   }
   
-  const data = await chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey']);
-  const settings = data.settings || {};
-  const provider = data.selectedProvider || settings.provider || 'openai';
-  const model = settings.model;
-  const apiKey = getApiKeyForProvider(provider, data);
+  const { settings, provider, model, apiKey } = await loadTrustedTextProviderContext();
   
   if (!apiKey) {
     chrome.tabs.sendMessage(sender.tab.id, { type: "LESSON_CHAT_STREAM_ERROR", sessionId, error: `No API key configured for ${provider}. Please check your settings.` }, { frameId: sender.frameId });
@@ -1145,11 +1274,7 @@ async function handleAskRequest(message, sender, sendResponse) {
     return;
   }
   
-  const data = await chrome.storage.local.get(['settings', 'selectedProvider', 'openaiApiKey', 'anthropicApiKey', 'geminiApiKey']);
-  const settings = data.settings || {};
-  const provider = data.selectedProvider || settings.provider || 'openai';
-  const model = settings.model;
-  const apiKey = getApiKeyForProvider(provider, data);
+  const { settings, provider, model, apiKey } = await loadTrustedTextProviderContext();
   
   if (!apiKey) {
     chrome.tabs.sendMessage(sender.tab.id, { type: "ASK_STREAM_ERROR", sessionId, error: `No API key configured for ${provider}. Please check your settings.` }, { frameId: sender.frameId });
@@ -1250,16 +1375,30 @@ async function handleTranslateMenuClick(info, tab, simpleMode = false) {
     return;
   }
   
-  const data = await chrome.storage.local.get(null);
-  const settings = data.settings || {};
+  const { settings: trustedSettings } = await loadTrustedTextProviderContext();
+  const settings = buildContentTranslationSettings(trustedSettings);
+  const frameId = info.frameId ?? 0;
+  const requestId = translationAuthorizations.issue({
+    tabId: tab.id,
+    frameId,
+    simpleMode
+  });
   
   try {
-    chrome.tabs.sendMessage(tab.id, { type: "TRANSLATE_SELECTION", text: selectionText, settings, simpleMode }, { frameId: info.frameId }, (response) => {
+    chrome.tabs.sendMessage(tab.id, {
+      type: "TRANSLATE_SELECTION",
+      requestId,
+      text: selectionText,
+      settings,
+      simpleMode
+    }, { frameId }, (response) => {
       if (chrome.runtime.lastError) {
+        translationAuthorizations.revoke(requestId);
         openStandaloneWindow('translate', selectionText, { isRestricted: false, simpleMode });
       }
     });
   } catch (error) {
+    translationAuthorizations.revoke(requestId);
     console.error("Synchronous error in translate menu click:", error.message);
   }
 }
@@ -1274,6 +1413,7 @@ async function handleImageTranslateMenuClick(info, tab) {
   }
 
   try {
+    await ensureCredentialStorageReady();
     const dataPromise = chrome.storage.local.get([
       'settings',
       'languageMode',
@@ -1446,6 +1586,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
   }
 
   try {
+    await ensureCredentialStorageReady();
     const data = await chrome.storage.local.get([
       'settings',
       'languageMode',
@@ -1586,6 +1727,7 @@ async function handleSpeakMenuClick(info, tab) {
     return;
   }
   
+  await ensureCredentialStorageReady();
   const data = await chrome.storage.local.get([
     'ttsProvider', 'elevenlabsApiKey', 'elevenlabsVoice', 'elevenlabsCustomVoiceId', 'elevenlabsModel',
     'googleTtsApiKey', 'googleTtsVoice', 'googleTtsSpeakingRate', 'googleTtsPitch'
@@ -1711,10 +1853,7 @@ async function handleLessonMenuClick(info, tab) {
     return;
   }
   
-  const data = await chrome.storage.local.get(['lessonPrompt']);
-  const lessonPrompt = data.lessonPrompt || defaultLessonPrompt;
-  
-  chrome.tabs.sendMessage(tab.id, { type: "CREATE_LESSON", text: selectionText, lessonPrompt }, { frameId: info.frameId }, (response) => {
+  chrome.tabs.sendMessage(tab.id, { type: "CREATE_LESSON", text: selectionText }, { frameId: info.frameId }, (response) => {
     if (chrome.runtime.lastError) {
       openStandaloneWindow('lesson', selectionText, { isRestricted: false });
     }
@@ -1750,7 +1889,9 @@ async function handleAskMenuClick(info, tab) {
 
 // Initialize context menus on install/update and browser startup.
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(null)
+  credentialStorageReady
+    .then(() => ensureCredentialStorageReady())
+    .then(() => chrome.storage.local.get(null))
     .then((data) => {
       const migration = buildModelDefaultsMigration(data);
       if (Object.keys(migration).length > 0) {
