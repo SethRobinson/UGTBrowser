@@ -3,17 +3,24 @@
 
 import { supportsTemperature, isGemini3Model, supportsGeminiThinking } from '../../shared/utils.js';
 
+const GEMINI_37_FLASH_MODEL_ID = "gemini-3.7-flash";
 const GEMINI_35_FLASH_MODEL_ID = "gemini-3.5-flash";
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-medium";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash-medium";
 
 const GEMINI_MODEL_VARIANTS = {
+  "gemini-3-pro-preview": { modelId: "gemini-3.1-pro-preview", thinkingLevel: null },
+  "gemini-3.7-flash": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.7-flash-low": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.7-flash-medium": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.7-flash-high": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "high" },
+  "gemini-3.5-flash-lite": { modelId: "gemini-3.5-flash-lite", thinkingLevel: "minimal" },
   "gemini-3.5-flash": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
   "gemini-3.5-flash-low": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "low" },
   "gemini-3.5-flash-medium": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
   "gemini-3.5-flash-high": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "high" }
 };
 
-function resolveGeminiModel(model) {
+export function resolveGeminiModel(model) {
   const requestedModel = model || DEFAULT_GEMINI_MODEL;
   const lowerModel = requestedModel.toLowerCase();
   return {
@@ -23,7 +30,7 @@ function resolveGeminiModel(model) {
   };
 }
 
-function addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEnabled, configureLegacyThinking = true) {
+export function addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEnabled, configureLegacyThinking = true) {
   if (thinkingLevel) {
     generationConfig.thinkingConfig = { thinkingLevel };
     return generationConfig.thinkingConfig;
@@ -36,6 +43,8 @@ function addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEna
   const thinkingConfig = {};
   if (isGemini3Model(modelId)) {
     thinkingConfig.thinkingLevel = thinkingEnabled ? "high" : "low";
+  } else if (modelId.toLowerCase() === "gemini-2.5-pro") {
+    thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 128;
   } else {
     thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 0;
   }
@@ -132,11 +141,12 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
       ]
     };
     
+    let timeoutId;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Request to Gemini timed out after 20 minutes`)), 1200000);
+      timeoutId = setTimeout(() => reject(new Error(`Request to Gemini timed out after 20 minutes`)), 1200000);
     });
     
-    console.log("Gemini: Fetching endpoint:", endpoint);
+    console.log("Gemini: Fetching model:", modelId);
     const fetchOptions = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,7 +158,7 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
     }
     
     const fetchPromise = fetch(endpoint, fetchOptions);
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    const response = await Promise.race([fetchPromise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     console.log("Gemini: Response received, status:", response.status);
     
     if (!response.ok) {

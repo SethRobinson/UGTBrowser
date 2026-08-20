@@ -51,7 +51,7 @@ export async function fetchGenericStreaming({
       await fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
       break;
     case "anthropic":
-      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, abortSignal);
+      await fetchChatFromAnthropicStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);
       break;
     case "gemini":
       await fetchChatFromGeminiStreaming(prompt, model, apiKey, sendChunk, settings, abortSignal);

@@ -6,6 +6,7 @@ import { supportsTemperature, usesOpenAIResponsesApi, getReasoningEffort } from 
 const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
+export const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
 
 /**
  * Non-streaming OpenAI API call
@@ -13,7 +14,7 @@ const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 export async function fetchFromOpenAI(prompt, model, apiKey) {
   if (!apiKey) throw new Error("OpenAI API key is required");
 
-  const modelToUse = model || "gpt-5.5";
+  const modelToUse = model || DEFAULT_OPENAI_MODEL;
   const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
   const endpoint = useResponsesApi ? OPENAI_RESPONSES_ENDPOINT : OPENAI_CHAT_COMPLETIONS_ENDPOINT;
   const requestBody = useResponsesApi
@@ -191,7 +192,7 @@ function sendOpenAIImageEditWithXhr({
   });
 }
 
-function buildOpenAIResponsesRequestBody(prompt, model, thinkingEnabled, { stream = false, maxOutputTokens = 16384 } = {}) {
+export function buildOpenAIResponsesRequestBody(prompt, model, thinkingEnabled, { stream = false, maxOutputTokens = 16384 } = {}) {
   const requestBody = {
     model,
     input: prompt,
@@ -210,7 +211,7 @@ function buildOpenAIResponsesRequestBody(prompt, model, thinkingEnabled, { strea
   return requestBody;
 }
 
-function buildOpenAIChatCompletionsRequestBody(prompt, model, stream, temperature, thinkingEnabled = false) {
+export function buildOpenAIChatCompletionsRequestBody(prompt, model, stream, temperature, thinkingEnabled = false) {
   const requestBody = {
     model,
     messages: [{ role: "user", content: prompt }]
@@ -325,7 +326,7 @@ async function readOpenAISseStream(response, abortSignal, onData, { logParseErro
 export async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, updateCallback, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
-  const modelToUse = model || "gpt-5.5";
+  const modelToUse = model || DEFAULT_OPENAI_MODEL;
   const thinkingEnabled = settings.openaiThinkingEnabled === true;
   const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
   const reasoningEffort = getReasoningEffort(modelToUse, thinkingEnabled);
@@ -404,7 +405,7 @@ export async function fetchFromOpenAIStreaming(prompt, model, apiKey, port, upda
 export async function fetchChatFromOpenAIStreaming(prompt, model, apiKey, sendChunk, settings = {}, abortSignal = null) {
   if (!apiKey) throw new Error("OpenAI API key is required");
   
-  const modelToUse = model || "gpt-5.5";
+  const modelToUse = model || DEFAULT_OPENAI_MODEL;
   const thinkingEnabled = settings.openaiThinkingEnabled === true;
   const useResponsesApi = usesOpenAIResponsesApi(modelToUse);
   const endpoint = useResponsesApi ? OPENAI_RESPONSES_ENDPOINT : OPENAI_CHAT_COMPLETIONS_ENDPOINT;

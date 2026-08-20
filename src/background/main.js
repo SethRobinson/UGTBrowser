@@ -17,6 +17,7 @@ import {
 } from '../shared/constants.js';
 
 import { isRestrictedUrl, supportsTemperature } from '../shared/utils.js';
+import { buildModelDefaultsMigration } from '../shared/model-migration.js';
 
 import { fetchFromOpenAI, fetchFromOpenAIStreaming } from './api/openai.js';
 import { fetchFromAnthropic, fetchFromAnthropicStreaming } from './api/anthropic.js';
@@ -620,7 +621,7 @@ async function fetchTranslationStreaming(promptText, settings, port, abortSignal
         await fetchFromOpenAIStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings, abortSignal);
         break;
       case "anthropic":
-        await fetchFromAnthropicStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, abortSignal);
+        await fetchFromAnthropicStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings, abortSignal);
         break;
       case "gemini":
         await fetchFromGeminiStreaming(promptText, model, apiKey, port, streamUpdateCallbackForDebug, settings, abortSignal);
@@ -668,7 +669,7 @@ async function fetchTranslation(promptText, settings) {
           result = await fetchFromOpenAI(promptText, model, apiKey);
           break;
         case "anthropic":
-          result = await fetchFromAnthropic(promptText, model, apiKey);
+          result = await fetchFromAnthropic(promptText, model, apiKey, settings);
           break;
         case "gemini":
           result = await fetchFromGemini(promptText, model, apiKey);
@@ -978,7 +979,7 @@ async function handleStandaloneTranslate(message, sendResponse) {
   try {
     let result;
     if (provider === 'openai') result = await fetchFromOpenAI(prompt, model, apiKey);
-    else if (provider === 'anthropic') result = await fetchFromAnthropic(prompt, model, apiKey);
+    else if (provider === 'anthropic') result = await fetchFromAnthropic(prompt, model, apiKey, storedSettings);
     else if (provider === 'gemini') result = await fetchFromGemini(prompt, model, apiKey);
     
     chrome.runtime.sendMessage({ type: 'STANDALONE_RESULT', sessionId, content: result });
@@ -1749,7 +1750,20 @@ async function handleAskMenuClick(info, tab) {
 
 // Initialize context menus on install/update and browser startup.
 chrome.runtime.onInstalled.addListener(() => {
-  initializeContextMenus();
+  chrome.storage.local.get(null)
+    .then((data) => {
+      const migration = buildModelDefaultsMigration(data);
+      if (Object.keys(migration).length > 0) {
+        return chrome.storage.local.set(migration);
+      }
+      return undefined;
+    })
+    .catch((error) => {
+      console.error("Failed to migrate provider model defaults:", error);
+    })
+    .finally(() => {
+      initializeContextMenus();
+    });
 });
 
 chrome.runtime.onStartup.addListener(() => {

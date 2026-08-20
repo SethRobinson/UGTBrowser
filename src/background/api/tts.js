@@ -1,6 +1,16 @@
 // src/background/api/tts.js
 // Text-to-Speech API integrations (ElevenLabs and Google Cloud TTS)
 
+export function normalizeElevenLabsModelId(modelId) {
+  const replacements = {
+    eleven_monolingual_v1: 'eleven_flash_v2',
+    eleven_multilingual_v1: 'eleven_multilingual_v2',
+    eleven_turbo_v2_5: 'eleven_flash_v2_5',
+    eleven_turbo_v2: 'eleven_flash_v2'
+  };
+  return replacements[modelId] || modelId || 'eleven_multilingual_v2';
+}
+
 /**
  * Convert ArrayBuffer to base64 string
  */
@@ -23,17 +33,18 @@ export async function fetchFromElevenLabs(text, voiceId, apiKey, modelId = "elev
   if (!voiceId) throw new Error("Voice ID is required");
   
   const endpoint = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+  const modelToUse = normalizeElevenLabsModelId(modelId);
   
   const requestBody = {
     text: text,
-    model_id: modelId,
+    model_id: modelToUse,
     voice_settings: {
       stability: 0.5,
       similarity_boost: 0.75
     }
   };
   
-  console.log(`ElevenLabs TTS request: voice=${voiceId}, model=${modelId}, text length=${text.length}`);
+  console.log(`ElevenLabs TTS request: voice=${voiceId}, model=${modelToUse}, text length=${text.length}`);
   
   const response = await fetch(endpoint, {
     method: "POST",

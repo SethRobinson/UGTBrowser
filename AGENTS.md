@@ -159,9 +159,17 @@ The model catalogs are duplicated in `options.js` and `src/shared/constants.js`;
 
 Current text defaults:
 
-- OpenAI defaults to `gpt-5.5`. `gpt-5.5`, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API for text generation and streaming; older supported OpenAI text models remain on Chat Completions. Do not send `temperature` to `gpt-5.5` or GPT-5.4 variants.
-- Anthropic defaults to `claude-sonnet-4-6`, with `claude-opus-4-8` selectable for higher-capability work. Do not send non-default sampling parameters such as `temperature` to `claude-opus-4-8`.
-- Gemini defaults to `gemini-3.5-flash-medium`, shown in settings as `Gemini 3.5 Flash (Medium)`. The three Gemini 3.5 Flash dropdown entries use internal values `gemini-3.5-flash-low`, `gemini-3.5-flash-medium`, and `gemini-3.5-flash-high`; all normalize to the API model ID `gemini-3.5-flash` with `thinkingConfig.thinkingLevel` set to `low`, `medium`, or `high`. Do not send `temperature` to these entries. Older Gemini 2.5 and 3-series models still use the Gemini thinking checkbox.
+- OpenAI defaults to `gpt-5.6-sol`; `gpt-5.6-terra` and `gpt-5.6-luna` provide lower-cost roles. GPT-5.6, GPT-5.5, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API. GPT-5.6 preserves the existing thinking toggle behavior: low reasoning when disabled and medium when enabled. Do not send `temperature` to GPT-5.6.
+- Anthropic defaults to `claude-sonnet-5`, with `claude-opus-5` and `claude-fable-5` selectable. Sonnet 5 and Opus 5 explicitly disable adaptive thinking unless the Anthropic thinking toggle is enabled; Fable 5 always uses adaptive thinking and has a 30-day API data retention policy. Claude 5 requests omit non-default sampling parameters, allow 16,384 output tokens, and treat `stop_reason: refusal` as a user-visible error.
+- Gemini defaults to `gemini-3.7-flash-medium`, shown in settings as `Gemini 3.7 Flash (Medium)`. The low, medium, and high entries normalize to API model ID `gemini-3.7-flash` with the matching `thinkingConfig.thinkingLevel`. `gemini-3.5-flash-lite` uses fixed minimal thinking. The retired `gemini-3-pro-preview` choice normalizes to `gemini-3.1-pro-preview`. Gemini 2.5 Pro cannot disable thinking, so the disabled toggle uses its minimum supported budget of 128. Older Gemini choices and aliases remain selectable for saved-setting compatibility. Do not send sampling parameters to Gemini 3.x models.
+
+GPT-5.2 Chat Completions requests must omit `temperature`; the API rejects non-default temperature when reasoning is enabled.
+
+## ElevenLabs TTS Models
+
+The settings page lists `eleven_v3`, `eleven_multilingual_v2`, `eleven_flash_v2_5`, and `eleven_flash_v2`. Retired saved choices are normalized in both the settings UI and the request function: Turbo v2.5 to Flash v2.5, Turbo v2 and Monolingual v1 to Flash v2, and Multilingual v1 to Multilingual v2.
+
+Model default migration is versioned by `modelDefaultsMigrationVersion`. It upgrades only exact former defaults and leaves custom or other explicit model selections unchanged. Provider request and migration regression tests run with `npm test`.
 
 ## Build And Smoke Checks
 
@@ -176,6 +184,7 @@ node --check src/background/main.js
 node --check src/background/context-menus.js
 node --check src/background/api/openai.js
 node --check src/background/api/anthropic.js
+npm test
 npm run package
 ```
 

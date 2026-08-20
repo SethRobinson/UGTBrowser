@@ -14,3 +14,4 @@ media/screenshots.psd
 .DS_Store
 Thumbs.db 
 local
+agents_secret.md

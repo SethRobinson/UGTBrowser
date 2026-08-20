@@ -65,7 +65,16 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ## Version History
 
-**v2.2.0** (Current)
+**v2.2.1** (Current)
+* Added GPT-5.6, Claude 5, Gemini 3.7, and Gemini 3.5 model choices
+* Improved thinking and reasoning compatibility across all supported providers
+* Refreshed ElevenLabs text-to-speech choices with Eleven v3 and Flash models
+* Migrated retired provider model choices to supported replacements
+* Fixed a CORS issue when translating images and switching between original and translated results
+* Fixed image translations completing incorrectly when the target image was scrolled offscreen
+* Fixed unsupported model parameters, provider request timeouts, and sensitive debug logging
+
+**v2.2.0**
 * Added support for GPT-5.5 and Claude Opus 4.8 models
 * Added "Translate Only" option for quick translations without cultural notes
 * Added customizable image translation prompt setting

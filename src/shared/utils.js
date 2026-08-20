@@ -12,7 +12,11 @@ import { noTemperatureModels } from './constants.js';
  */
 export function supportsTemperature(model) {
   if (!model) return true;
-  return !noTemperatureModels.includes(model.toLowerCase());
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.startsWith('gpt-5.6')) return false;
+  if (/^claude-(sonnet|opus|fable)-5(?:$|-)/.test(lowerModel)) return false;
+  if (lowerModel.startsWith('gemini-3')) return false;
+  return !noTemperatureModels.includes(lowerModel);
 }
 
 /**
@@ -37,7 +41,8 @@ export function isGPT52Pro(model) {
 export function usesOpenAIResponsesApi(model) {
   if (!model) return false;
   const lowerModel = model.toLowerCase();
-  return lowerModel === 'gpt-5.5' ||
+  return lowerModel.startsWith('gpt-5.6') ||
+    lowerModel === 'gpt-5.5' ||
     lowerModel.startsWith('gpt-5.4') ||
     lowerModel === 'gpt-5.2-pro';
 }
@@ -67,7 +72,7 @@ export function getReasoningEffort(model, thinkingEnabled) {
     return thinkingEnabled ? "high" : "medium";
   }
 
-  if (lowerModel === 'gpt-5.5' || lowerModel.startsWith('gpt-5.4')) {
+  if (lowerModel.startsWith('gpt-5.6') || lowerModel === 'gpt-5.5' || lowerModel.startsWith('gpt-5.4')) {
     return thinkingEnabled ? "medium" : "low";
   }
   

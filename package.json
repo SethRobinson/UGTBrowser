@@ -1,9 +1,9 @@
 {
   "name": "ugtbrowser",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Inline translation of highlighted text using state-of-the-art AI models.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --experimental-default-type=module --test",
     "package": "node package-extension.js"
   },
   "keywords": [

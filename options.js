@@ -57,8 +57,12 @@ const anthropicApiKeyHelp = document.getElementById('anthropicApiKeyHelp');
 const geminiApiKeyHelp = document.getElementById('geminiApiKeyHelp');
 
 const openaiThinkingWrapper = document.getElementById('openaiThinkingWrapper');
+const anthropicThinkingWrapper = document.getElementById('anthropicThinkingWrapper');
 const geminiThinkingWrapper = document.getElementById('geminiThinkingWrapper');
 const openaiThinkingCheckbox = document.getElementById('openaiThinkingCheckbox');
+const anthropicThinkingCheckbox = document.getElementById('anthropicThinkingCheckbox');
+const anthropicThinkingToggleLabel = document.getElementById('anthropicThinkingToggleLabel');
+const anthropicFableNotice = document.getElementById('anthropicFableNotice');
 const geminiThinkingCheckbox = document.getElementById('geminiThinkingCheckbox');
 
 const promptTemplateTextarea = document.getElementById('promptTemplate');
@@ -173,28 +177,48 @@ const standalonePromptHelpContent = {
 
 // --- Configuration Data ---
 const noTemperatureModels = [
-  "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+  "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+  "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2",
   "gpt-5-mini", "gpt-5-nano",
-  "claude-opus-4-8",
+  "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-opus-4-8",
+  "gemini-3.7-flash",
+  "gemini-3.7-flash-medium",
+  "gemini-3.7-flash-high",
+  "gemini-3.7-flash-low",
   "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.5-flash-medium",
   "gemini-3.5-flash-high",
   "gemini-3.5-flash-low",
   "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
-  "gemini-3-pro-preview", "gemini-3-flash-preview"
+  "gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview"
 ];
 
 const providerModels = {
-  openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
-  anthropic: ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"],
-  gemini: ["gemini-3.5-flash-medium", "gemini-3.5-flash-high", "gemini-3.5-flash-low", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+  openai: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2-pro", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
+  anthropic: ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-sonnet-4-5", "claude-opus-4-5"],
+  gemini: ["gemini-3.7-flash-medium", "gemini-3.7-flash-high", "gemini-3.7-flash-low", "gemini-3.5-flash-lite", "gemini-3.5-flash-medium", "gemini-3.5-flash-high", "gemini-3.5-flash-low", "gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 };
 
 const modelDisplayNames = {
+  "gpt-5.6-sol": "GPT-5.6 Sol",
+  "gpt-5.6-terra": "GPT-5.6 Terra",
+  "gpt-5.6-luna": "GPT-5.6 Luna",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "claude-opus-5": "Claude Opus 5",
+  "claude-fable-5": "Claude Fable 5 (30-day retention)",
+  "gemini-3.7-flash-medium": "Gemini 3.7 Flash (Medium)",
+  "gemini-3.7-flash-high": "Gemini 3.7 Flash (High)",
+  "gemini-3.7-flash-low": "Gemini 3.7 Flash (Low)",
+  "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite (Minimal)",
   "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
   "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
-  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)"
+  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)",
+  "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
+  "gemini-3-pro-preview": "Gemini 3 Pro Preview (legacy alias)"
 };
+
+const CUSTOM_MODEL_VALUE = '__custom__';
 
 // Default lesson prompt
 const defaultLessonPrompt = `Create a comprehensive lesson to help me learn about this Japanese text and its translation: "{0}"
@@ -297,7 +321,12 @@ function initializeOptionsPage() {
     updateCustomModelVisibility();
     updateThinkingCheckboxVisibility();
   });
-  customModelInput.addEventListener('input', updateThinkingCheckboxVisibility);
+  customModelInput.addEventListener('input', () => {
+    if (customModelInput.value.trim()) {
+      modelSelect.value = CUSTOM_MODEL_VALUE;
+    }
+    updateThinkingCheckboxVisibility();
+  });
   openAIApiKeyInput.addEventListener('input', updateImageOpenAIKeyStatus);
   saveBtn.addEventListener('click', saveOptions);
   
@@ -598,6 +627,7 @@ function restoreOptions() {
     customLanguage: '',
     globalCreativeTask: '', 
     openaiThinkingEnabled: false,
+    anthropicThinkingEnabled: false,
     geminiThinkingEnabled: false,
     lastRequestInfo: null,
     lastRequestPrompt: null,
@@ -672,6 +702,9 @@ function restoreOptions() {
     if (openaiThinkingCheckbox) {
       openaiThinkingCheckbox.checked = items.openaiThinkingEnabled === true;
     }
+    if (anthropicThinkingCheckbox) {
+      anthropicThinkingCheckbox.checked = items.anthropicThinkingEnabled === true;
+    }
     if (geminiThinkingCheckbox) {
       geminiThinkingCheckbox.checked = items.geminiThinkingEnabled === true;
     }
@@ -730,7 +763,7 @@ function restoreOptions() {
       elevenlabsCustomVoiceIdInput.value = items.elevenlabsCustomVoiceId || '';
     }
     if (elevenlabsModelSelect) {
-      elevenlabsModelSelect.value = items.elevenlabsModel || 'eleven_multilingual_v2';
+      elevenlabsModelSelect.value = normalizeElevenLabsModelId(items.elevenlabsModel);
     }
 
     // Google TTS settings
@@ -773,10 +806,11 @@ function saveOptions() {
   const selectedModelValue = modelSelect.value;
   const customModelValue = customModelInput.value.trim();
   
-  let finalModel = selectedModelValue;
-  if (customModelValue && (selectedModelValue === '' || !providerModels[provider] || providerModels[provider].length === 0 || !providerModels[provider].includes(selectedModelValue))) {
-    finalModel = customModelValue;
-  }
+  const isCustomModelSelected = selectedModelValue === CUSTOM_MODEL_VALUE;
+  const finalModel = isCustomModelSelected
+    ? (customModelValue || providerModels[provider]?.[0] || '')
+    : selectedModelValue;
+  const customModelToSave = isCustomModelSelected ? customModelValue : '';
   
   const openaiApiKey = openAIApiKeyInput.value.trim();
   const anthropicApiKey = anthropicApiKeyInput.value.trim();
@@ -823,16 +857,17 @@ function saveOptions() {
     selectedProvider: provider,
     // Save provider-specific model
     [`${provider}Model`]: finalModel,
-    [`${provider}CustomModel`]: customModelValue,
+    [`${provider}CustomModel`]: customModelToSave,
     // Keep old keys for backward compatibility
     model: finalModel,
-    customModel: customModelValue,
+    customModel: customModelToSave,
     openaiApiKey: openaiApiKey,
     anthropicApiKey: anthropicApiKey,
     geminiApiKey: geminiApiKey,
     [`${provider}Prompt`]: promptTemplateFromUI, // Store the UNRESOLVED template for this provider
     globalCreativeTask: creativeTaskText, 
     openaiThinkingEnabled: openaiThinkingCheckbox ? openaiThinkingCheckbox.checked : false,
+    anthropicThinkingEnabled: anthropicThinkingCheckbox ? anthropicThinkingCheckbox.checked : false,
     geminiThinkingEnabled: geminiThinkingCheckbox ? geminiThinkingCheckbox.checked : false,
     supportsTemperature: supportsTemperature(finalModel),
     languageMode: languageMode,
@@ -863,6 +898,7 @@ function saveOptions() {
       targetLang: languageMode === 'custom' ? customLangText : (standardLanguageText || 'English'),
       streaming: true,
       openaiThinkingEnabled: openaiThinkingCheckbox ? openaiThinkingCheckbox.checked : false,
+      anthropicThinkingEnabled: anthropicThinkingCheckbox ? anthropicThinkingCheckbox.checked : false,
       geminiThinkingEnabled: geminiThinkingCheckbox ? geminiThinkingCheckbox.checked : false
     }
   };
@@ -920,18 +956,27 @@ function updateModelOptions(currentModel = null, currentCustomModel = null) {
     modelSelect.appendChild(opt);
   });
 
+  const customOption = document.createElement('option');
+  customOption.value = CUSTOM_MODEL_VALUE;
+  customOption.textContent = 'Custom model...';
+  modelSelect.appendChild(customOption);
+
   const normalizedCurrentModel = currentModel === 'gemini-3.5-flash'
     ? 'gemini-3.5-flash-medium'
     : currentModel;
 
   if (normalizedCurrentModel && models.includes(normalizedCurrentModel)) {
     modelSelect.value = normalizedCurrentModel;
+    customModelInput.value = '';
   } else if (currentCustomModel || (currentModel && !models.includes(normalizedCurrentModel))) {
-     // If there was a custom model saved, or the saved model isn't in the list,
-     // try to set customModelInput. The modelSelect might remain on its first option.
+    modelSelect.value = CUSTOM_MODEL_VALUE;
     customModelInput.value = currentCustomModel || currentModel || '';
   } else if (models.length > 0) {
     modelSelect.value = models[0]; // Default to first model in list if no specific selection
+    customModelInput.value = '';
+  } else {
+    modelSelect.value = CUSTOM_MODEL_VALUE;
+    customModelInput.value = currentCustomModel || currentModel || '';
   }
   
   updateCustomModelVisibility();
@@ -1051,6 +1096,16 @@ function updateGoogleTtsTestText() {
   googleTtsTestTextInput.value = getTestPhraseForLanguage(langPrefix);
 }
 
+function normalizeElevenLabsModelId(modelId) {
+  const replacements = {
+    eleven_monolingual_v1: 'eleven_flash_v2',
+    eleven_multilingual_v1: 'eleven_multilingual_v2',
+    eleven_turbo_v2_5: 'eleven_flash_v2_5',
+    eleven_turbo_v2: 'eleven_flash_v2'
+  };
+  return replacements[modelId] || modelId || 'eleven_multilingual_v2';
+}
+
 
 function resetPromptToDefault() {
   const provider = providerSelect.value;
@@ -1071,7 +1126,11 @@ function resetImagePromptToDefault() {
 
 function supportsTemperature(model) {
   if (!model) return true;
-  return !noTemperatureModels.includes(model.toLowerCase());
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.startsWith('gpt-5.6')) return false;
+  if (/^claude-(sonnet|opus|fable)-5(?:$|-)/.test(lowerModel)) return false;
+  if (lowerModel.startsWith('gemini-3')) return false;
+  return !noTemperatureModels.includes(lowerModel);
 }
 
 // Helper functions to check if models support thinking
@@ -1085,9 +1144,20 @@ function isGemini25Or3Model(model) {
   return model.startsWith('gemini-2.5') || model.startsWith('gemini-3');
 }
 
-function isGemini35FlashThinkingVariant(model) {
+function isFixedGeminiThinkingVariant(model) {
   if (!model) return false;
-  return /^gemini-3\.5-flash-(low|medium|high)$/i.test(model);
+  return /^gemini-3\.(5|7)-flash-(low|medium|high)$/i.test(model) ||
+    model.toLowerCase() === 'gemini-3.5-flash-lite';
+}
+
+function isClaude5Model(model) {
+  if (!model) return false;
+  return /^claude-(sonnet|opus|fable)-5(?:$|-)/i.test(model);
+}
+
+function isClaudeFable5Model(model) {
+  if (!model) return false;
+  return /^claude-fable-5(?:$|-)/i.test(model);
 }
 
 function updateThinkingCheckboxVisibility() {
@@ -1096,10 +1166,9 @@ function updateThinkingCheckboxVisibility() {
   const customModelValue = customModelInput.value.trim();
   
   // Determine the actual model being used
-  let actualModel = selectedModelValue;
-  if (customModelValue && (selectedModelValue === '' || !providerModels[provider] || providerModels[provider].length === 0 || !providerModels[provider].includes(selectedModelValue))) {
-    actualModel = customModelValue;
-  }
+  const actualModel = selectedModelValue === CUSTOM_MODEL_VALUE
+    ? customModelValue
+    : selectedModelValue;
   
   // Show/hide OpenAI thinking checkbox
   if (openaiThinkingWrapper && openaiThinkingCheckbox) {
@@ -1109,10 +1178,22 @@ function updateThinkingCheckboxVisibility() {
       openaiThinkingWrapper.style.display = 'none';
     }
   }
+
+  if (anthropicThinkingWrapper && anthropicThinkingCheckbox) {
+    const showAnthropicThinking = provider === 'anthropic' && isClaude5Model(actualModel);
+    const isFable = showAnthropicThinking && isClaudeFable5Model(actualModel);
+    anthropicThinkingWrapper.style.display = showAnthropicThinking ? 'block' : 'none';
+    if (anthropicThinkingToggleLabel) {
+      anthropicThinkingToggleLabel.style.display = isFable ? 'none' : 'block';
+    }
+    if (anthropicFableNotice) {
+      anthropicFableNotice.style.display = isFable ? 'block' : 'none';
+    }
+  }
   
   // Show/hide Gemini thinking checkbox
   if (geminiThinkingWrapper && geminiThinkingCheckbox) {
-    if (provider === 'gemini' && isGemini25Or3Model(actualModel) && !isGemini35FlashThinkingVariant(actualModel)) {
+    if (provider === 'gemini' && isGemini25Or3Model(actualModel) && !isFixedGeminiThinkingVariant(actualModel)) {
       geminiThinkingWrapper.style.display = 'block';
     } else {
       geminiThinkingWrapper.style.display = 'none';
