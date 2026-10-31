@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>UGTBrowser page-corpus regressions</title>
+  <style>
+    body { font: 16px/1.5 sans-serif; margin: 24px; max-width: 900px; }
+    section { margin-bottom: 48px; }
+    .comment { border-bottom: 1px solid #ddd; padding: 12px 0; }
+    /* Collapsed "Read more" comment body, like YouTube's ytd-expander. */
+    .expander { max-height: 4.5em; overflow: hidden; line-height: 1.5em; }
+    .read-more { color: #666; font-size: 14px; }
+    /* Fixed-height card: the notes panel fits while streaming, then outgrows it
+       once the action and follow-up chat rows are added. */
+    .fixed-card { height: 170px; overflow: hidden; border: 1px solid #ccc; padding: 8px; }
+    /* Custom-scrollbar dialog (SimpleBar style, as on NHK): an overflow:hidden mask
+       around the real scroller inside a fixed-height flex column. Panels must stay
+       inside the scroller or the mask collapses to zero height. */
+    .dialog { display: flex; flex-direction: column; height: 260px; border: 1px solid #999; }
+    .dialog-title { flex: none; padding: 8px; font-weight: bold; }
+    .scroll-mask { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+    .scroll-wrapper { height: 100%; overflow-y: scroll; padding: 0 8px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <section id="comments">
+    <h2>Comments (collapsed long comment)</h2>
+    <div class="comment">
+      <div class="expander">疲れた時も米津玄師、気分を上げたいときも米津玄師、しんみりしたい時も米津玄師、ランニングの時も米津玄師。どんな気分の時でも寄り添ってくれる曲ばかりで本当に感謝しています。この曲を聴くと昔のことを思い出して、少しだけ前向きになれる気がします。これからも応援しています。</div>
+      <div class="read-more">Read more</div>
+    </div>
+    <div class="comment">
+      <div class="expander">インド人ですけど、この曲を聞いたり日本語を頑張って勉強しています。皆さんも体に気を付けてください。</div>
+    </div>
+  </section>
+
+  <section id="cards">
+    <h2>Fixed-height card</h2>
+    <div class="fixed-card"><p class="card-text">東京の天気は明日の午後から崩れる見込みで、夜には強い雨が降るでしょう。</p></div>
+  </section>
+
+  <section id="dialog-section">
+    <h2>Custom scroller dialog</h2>
+    <div class="dialog">
+      <div class="dialog-title">ご利用にあたって</div>
+      <div class="scroll-mask"><div class="scroll-wrapper">
+        <p>このサービスはどなたでもご利用になれます。受信契約がお済みの世帯の方は、別途の負担なくご利用いただけます。</p>
+        <p>受信契約の詳細や、事業・学校での利用については下記のリンクをご覧ください。</p>
+        <p>利用規約に同意のうえ、次へお進みください。</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="clears-selection">
+    <h2>Page clears the selection on right-click</h2>
+    <div id="clearing-text">
+      <div>右クリックするとこのページは選択範囲を消してしまいます。</div>
+      <div>拡張機能は直前の選択範囲を使って翻訳を続けるべきです。</div>
+      <div>複数行のコメントでも全文が翻訳されなければなりません。</div>
+    </div>
+  </section>
+
+  <section id="shadow-section">
+    <h2>Shadow DOM description</h2>
+    <div id="shadow-host"></div>
+  </section>
+
+  <section id="article">
+    <h2>Article with inline style and hidden text</h2>
+    <p>最初の段落です。この文章は選択範囲の開始位置として使われるテスト用のテキストです。</p>
+    <style>.inline-widget { color: #335; } /* inline style block inside the article body */</style>
+    <span style="display:none">この非表示テキストは翻訳してはいけません。</span>
+    <p>二番目の段落です。選択範囲はここで終わり、間にあるスタイル要素は翻訳対象外になるべきです。</p>
+  </section>
+
+  <script>
+    const root = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = 'p { margin: 0 0 8px; }';
+    root.appendChild(style);
+    root.appendChild(document.createTextNode('当商品は中古市場にて購入したジャンク品となります。動作確認は行っておりません。'));
+    root.appendChild(document.createElement('br'));
+    root.appendChild(document.createTextNode('外観は比較的綺麗な状態ですが、分解履歴が確認できます。ご理解のほどよろしくお願いいたします。'));
+
+    // Like YouTube comments: the right-button mousedown collapses the selection
+    // to a caret (one empty range, unlike removeAllRanges).
+    document.getElementById('clearing-text').addEventListener('mousedown', (event) => {
+      if (event.button === 2) getSelection().collapse(event.target, 0);
+    });
+  </script>
+</body>
+</html>

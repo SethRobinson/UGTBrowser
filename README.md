@@ -72,6 +72,9 @@ This project was developed with significant assistance from AI tools.  I mean, y
 * Improved thinking and reasoning compatibility across all supported providers
 * Refreshed ElevenLabs text-to-speech choices with Eleven v4, Eleven v4 Turbo, Eleven v3, and Flash models
 * Fixed selected-text translation, lessons, and questions doing nothing on pages that render text inside a shadow DOM (such as Yahoo! Auctions item descriptions)
+* Fixed translation notes, the Show Original button, and the Ask and Lesson panels being cut off inside collapsed comments (such as YouTube's "Read more") and fixed-height cards
+* Selected-text translation no longer sends or replaces inline styles, scripts, or hidden text inside the selection
+* Fixed only part of a multi-line selection being translated on pages that clear the selection on right-click (such as YouTube comments)
 * Migrated retired provider model choices to supported replacements
 * Fixed a CORS issue when translating images and switching between original and translated results
 * Fixed image translations completing incorrectly when the target image was scrolled offscreen

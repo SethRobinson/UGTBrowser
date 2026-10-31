@@ -94,7 +94,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else {
       // Normal mode: insert after selection
       // Get the selection range - use same approach as translate which works correctly
-      const activeRange = getActiveSelectionRange();
+      const activeRange = getActiveSelectionRange(selectedText);
       
       // Insert after the selection, but OUTSIDE any anchor elements
       if (activeRange) {
@@ -120,6 +120,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         // Insert the lesson container after the element (outside any anchor)
         if (insertAfterElement && insertAfterElement.parentNode) {
           insertAfterElement.parentNode.insertBefore(lessonContainer, insertAfterElement.nextSibling);
+          moveOutOfClippingAncestors(lessonContainer);
         } else {
           // Fallback: use range insertion
           const insertionRange = activeRange.cloneRange();
@@ -698,7 +699,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else {
       // Normal mode: insert after selection
       // Get the selection range
-      const activeRange = getActiveSelectionRange();
+      const activeRange = getActiveSelectionRange(selectedText);
       
       // Insert after the selection, but OUTSIDE any anchor elements
       if (activeRange) {
@@ -724,6 +725,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
         // Insert the ask container after the element (outside any anchor)
         if (insertAfterElement && insertAfterElement.parentNode) {
           insertAfterElement.parentNode.insertBefore(askContainer, insertAfterElement.nextSibling);
+          moveOutOfClippingAncestors(askContainer);
         } else {
           // Fallback: use range insertion
           const insertionRange = activeRange.cloneRange();
@@ -1909,7 +1911,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Toggle all translations in a batch between original and translated text
   function toggleAllTranslations(batchId, btn) {
-    const segments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    const segments = queryTranslationElements(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
     const currentlyShowing = btn.getAttribute('data-showing');
     
     segments.forEach(span => {
@@ -2056,6 +2058,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     if (insertionParent) {
       insertionParent.insertBefore(culturalNuancesContainer, insertBeforeRef);
+      moveOutOfClippingAncestors(culturalNuancesContainer);
     } else {
       document.body.appendChild(culturalNuancesContainer);
     }
@@ -2069,7 +2072,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Check if any segments in a batch actually changed and need a toggle
   function batchHasChangedSegments(batchId) {
-    const segments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    const segments = queryTranslationElements(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
     for (const span of segments) {
       const originalText = span.getAttribute('data-original-text');
       const translatedText = span.getAttribute('data-translated-text');
@@ -3930,17 +3933,66 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return deepRange || range.cloneRange();
   }
 
-  // Range to act on for a context-menu command: the range saved on selectionchange
-  // (survives pages that clear the selection on right-click), else the live selection.
-  function getActiveSelectionRange() {
-    if (savedRange && !savedRange.collapsed) return savedRange;
-    return getSelectionRangeDeep() || savedRange;
+  function composedParent(node) {
+    if (node.parentElement) return node.parentElement;
+    return node.parentNode instanceof ShadowRoot ? node.parentNode.host : null;
   }
 
-  // Shadow roots that hold translation segments; document.querySelector cannot see into them.
+  // An ancestor whose height is limited and whose content spills past it, so the
+  // element is cut off or drawn under the next item.
+  function findClippingAncestor(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.height === 0) return null;
+    for (let node = composedParent(element); node && node !== document.body && node !== document.documentElement; node = composedParent(node)) {
+      // Inside a scroll container the user can scroll to it. Stop here: moving it
+      // past outer wrappers (custom scrollbars such as SimpleBar put an
+      // overflow:hidden mask around the scroller) can collapse a dialog body.
+      const overflowY = getComputedStyle(node).overflowY;
+      if (/(auto|scroll)/.test(overflowY)) return null;
+      // A clipping box (overflow hidden/clip) or one whose content spills past its
+      // limited height; a box that fits its content has scrollHeight <= clientHeight + 1.
+      const clips = /(hidden|clip)/.test(overflowY);
+      if (!clips && node.scrollHeight <= node.clientHeight + 1) continue;
+      if (rect.bottom > node.getBoundingClientRect().bottom + 1) return node;
+    }
+    return null;
+  }
+
+  // Panels and buttons inserted next to translated text can land inside a box that
+  // limits its height, such as YouTube's collapsed "Read more" comment body. Move the
+  // element out past each such ancestor so it stays visible.
+  function moveOutOfClippingAncestors(element) {
+    for (let hops = 0; element && element.isConnected && hops < 8; hops++) {
+      const clipper = findClippingAncestor(element);
+      if (!clipper || !clipper.parentNode) return;
+      clipper.parentNode.insertBefore(element, clipper.nextSibling);
+    }
+  }
+
+  function isUsableRange(range) {
+    return !!range && !range.collapsed && range.startContainer.isConnected && range.endContainer.isConnected;
+  }
+
+  // Range to act on for a context-menu command. selectedText is the text Chrome
+  // passed with the menu click. The range saved on selectionchange survives pages
+  // that clear the selection on right-click (YouTube comments do); use it while its
+  // text still matches, else the live selection.
+  function getActiveSelectionRange(selectedText) {
+    const normalize = (text) => (text || '').replace(/\s+/g, '');
+    const matchesSelection = (range) => isUsableRange(range) &&
+      (!selectedText || normalize(range.toString()) === normalize(selectedText));
+    if (matchesSelection(savedRange)) return savedRange;
+    const liveRange = getSelectionRangeDeep();
+    if (isUsableRange(liveRange)) return liveRange;
+    // Range text can differ from the selection text (hidden text inside the range),
+    // so a non-matching saved range still beats nothing.
+    return isUsableRange(savedRange) ? savedRange : (liveRange || savedRange);
+  }
+
+  // Shadow roots that hold translation segments and their controls; document.querySelector cannot see into them.
   const translationShadowRoots = new Set();
 
-  function querySegments(selector) {
+  function queryTranslationElements(selector) {
     const results = [...document.querySelectorAll(selector)];
     for (const root of translationShadowRoots) {
       if (!root.host?.isConnected) {
@@ -3952,7 +4004,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     return results;
   }
 
-  function querySegment(selector) {
+  function queryTranslationElement(selector) {
     const match = document.querySelector(selector);
     if (match) return match;
     for (const root of translationShadowRoots) {
@@ -3964,7 +4016,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   document.addEventListener("selectionchange", () => {
     const range = getSelectionRangeDeep(document.getSelection(), { fullScan: false });
-    if (range) {
+    // Keep the last real selection when the page collapses it (for example on the
+    // right-click that opens the context menu).
+    if (range && (!range.collapsed || !savedRange)) {
       savedRange = range;
     }
   });
@@ -4470,7 +4524,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             
             // console.log(`Found tagged translation: ID=${ugtId}, Content Length=${translatedContent.length}`);
             
-            const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+            const targetSpan = queryTranslationElement(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               let finalTranslatedContent = translatedContent;
               if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
@@ -4540,7 +4594,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               if (!culturalNuancesContainer) {
                 // Add "Toggle All" button first if there are segments that changed
                 if (lastTranslatedElement && currentTranslationBatchId && batchHasChangedSegments(currentTranslationBatchId)) {
-                  const existingToggleBtn = document.querySelector(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
+                  const existingToggleBtn = queryTranslationElement(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
                   if (!existingToggleBtn) {
                     const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
                     
@@ -4560,6 +4614,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                     
                     if (toggleInsertionParent) {
                       toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+                      moveOutOfClippingAncestors(toggleAllBtn);
                     }
                   }
                 }
@@ -4614,7 +4669,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             // If segments can be complex HTML that shouldn't be joined by newlines, adjust accordingly.
             fullyAssembledTranslation += translatedContent + "\n"; 
 
-            const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+            const targetSpan = queryTranslationElement(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               let finalTranslatedContent = translatedContent;
               if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
@@ -4670,7 +4725,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
           
           // Add "Toggle All" button if there are segments that changed (and not already added during streaming)
           if (lastTranslatedElement && currentTranslationBatchId && batchHasChangedSegments(currentTranslationBatchId)) {
-            const existingToggleBtn = document.querySelector(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
+            const existingToggleBtn = queryTranslationElement(`.ugt-toggle-all-btn[data-batch-id="${currentTranslationBatchId}"]`);
             if (!existingToggleBtn) {
               const toggleAllBtn = createToggleAllButton(currentTranslationBatchId);
               
@@ -4690,6 +4745,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               
               if (toggleInsertionParent) {
                 toggleInsertionParent.insertBefore(toggleAllBtn, toggleInsertAfter.nextSibling);
+                moveOutOfClippingAncestors(toggleAllBtn);
               }
             }
           }
@@ -4769,7 +4825,6 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               // Container exists from streaming - finalize the content
               updateCulturalNuancesContent(extraText);
             }
-            
             // Add action buttons for the cultural nuances content if not already present
             if (!containerToUse.querySelector('.ugt-message-actions')) {
               const htmlContent = simpleMarkdownToHtml(extraText);
@@ -4781,6 +4836,10 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             if (!containerToUse.querySelector('.ugt-chat-section')) {
               const chatElements = createChatInterface(containerToUse, extraText);
             }
+
+            // The notes grew while streaming and gained the action and chat rows;
+            // re-check that no height-limited box cuts them off.
+            moveOutOfClippingAncestors(containerToUse);
             
             // Update the session context with translation info
             const chatSessionId = containerToUse.dataset.chatSessionId;
@@ -4791,7 +4850,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 let collectedOriginalText = "";
                 let collectedTranslatedText = "";
                 if (currentTranslationBatchId) {
-                  const batchSegments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                  const batchSegments = queryTranslationElements(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
                   const originalTexts = [];
                   const translatedTexts = [];
                   batchSegments.forEach(span => {
@@ -4883,7 +4942,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
              const previewArea = overlayDiv.querySelector('.translation-preview');
              if (previewArea) {
                 previewArea.style.display = "block";
-                previewArea.innerHTML = `<div style="color:red; font-weight:bold;">Error: ${msg.error}</div>`;
+                previewArea.innerHTML = `<div style="color:red; font-weight:bold;">Error: ${escapeHtml(msg.error)}</div>`;
              }
              const textSpan = overlayDiv.querySelector('.overlay-text');
              if (textSpan) textSpan.textContent = "Error during translation";
@@ -4927,7 +4986,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 let translatedContent = match[2];
                 // Refine translatedContent
                 translatedContent = getInnermostTranslatedSegment(ugtId, translatedContent, tagRegex);
-                const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+                const targetSpan = queryTranslationElement(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
                 if (targetSpan) targetSpan.textContent = translatedContent;
                 lastIndex = tagRegex.lastIndex;
             }
@@ -4959,7 +5018,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     
     // Prefer the range captured by selectionchange; fall back to the live selection,
     // reaching into shadow roots if Chrome rescoped it to a shadow host.
-    const activeRange = getActiveSelectionRange();
+    const activeRange = getActiveSelectionRange(selectedText);
 
     if (!activeRange) {
       // selectedText (from background) was present, but the page has no selection now.
@@ -5015,13 +5074,23 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       }
     }
     
+    // Skip text the user did not see or select: code and form state (inline
+    // <script>/<style> blocks are common inside article bodies) and display:none
+    // text, which Selection.toString() also leaves out.
+    function isUserVisibleText(textNode) {
+      const parent = textNode.parentElement;
+      if (!parent) return true; // Text directly under a shadow root
+      if (parent.closest('script, style, noscript, template, textarea, title, option')) return false;
+      return typeof parent.checkVisibility === 'function' ? parent.checkVisibility() : true;
+    }
+
     // Use TreeWalker on the actual DOM, starting from the common ancestor
     const rootNode = commonAncestor.nodeType === Node.TEXT_NODE ? commonAncestor.parentNode : commonAncestor;
     const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null, false);
     
     let node;
     while (node = walker.nextNode()) {
-      if (node.nodeValue.trim() !== "" && isNodeInRange(node, range)) {
+      if (node.nodeValue.trim() !== "" && isNodeInRange(node, range) && isUserVisibleText(node)) {
         textNodesToReplace.push(node);
       }
     }
@@ -5273,7 +5342,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               let collectedOriginalText = "";
               let collectedTranslatedText = "";
               if (currentTranslationBatchId) {
-                const batchSegments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                const batchSegments = queryTranslationElements(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
                 const originalTexts = [];
                 const translatedTexts = [];
                 batchSegments.forEach(span => {

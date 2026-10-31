@@ -124,7 +124,9 @@ Known limitations:
 
 ## Selected Text And Shadow DOM
 
-Chrome rescopes a selection made inside a shadow root (for example the Yahoo! Auctions item description, which renders seller HTML in an open shadow root) to a collapsed range at the shadow host, while `Selection.toString()` and the context menu's `selectionText` still contain the text. Code that needs the selection's DOM range must use `getSelectionRangeDeep()` / `getActiveSelectionRange()` in `contentScript.js`, which recover the real range with `Selection.getComposedRanges({ shadowRoots })`; a plain `getRangeAt(0)` finds no text nodes and the translation silently did nothing before this was fixed. Translation segments can therefore live inside shadow roots, so look them up with `querySegment()` / `querySegments()` (which also search `translationShadowRoots`), never `document.querySelector` directly. A selection that crosses a shadow boundary cannot become one `Range` and is not supported.
+Chrome rescopes a selection made inside a shadow root (for example the Yahoo! Auctions item description, which renders seller HTML in an open shadow root) to a collapsed range at the shadow host, while `Selection.toString()` and the context menu's `selectionText` still contain the text. Code that needs the selection's DOM range must use `getSelectionRangeDeep()` / `getActiveSelectionRange(selectedText)` in `contentScript.js`, which recover the real range with `Selection.getComposedRanges({ shadowRoots })`; a plain `getRangeAt(0)` finds no text nodes and the translation silently did nothing before this was fixed. Translation segments and their Show Original buttons can therefore live inside shadow roots, so look them up with `queryTranslationElement()` / `queryTranslationElements()` (which also search `translationShadowRoots`), never `document.querySelector` directly. A selection that crosses a shadow boundary cannot become one `Range` and is not supported. `savedRange` keeps the last non-empty selection because some pages (YouTube comments) collapse the selection to a caret on the right-click that opens the menu; `getActiveSelectionRange(selectedText)` uses it only while its text matches the text Chrome passed with the menu click.
+
+When wrapping the selection into segments, `isUserVisibleText()` skips text inside `<script>`, `<style>`, `<noscript>`, `<template>`, `<textarea>`, `<title>`, `<option>`, and `display:none` text (article bodies often contain inline `<style>` blocks). Panels and buttons inserted next to translated text (notes, Ask, Lesson, Show Original) go through `moveOutOfClippingAncestors()`, which moves them out past any height-limited or `overflow:hidden`/`clip` ancestor they extend past, such as YouTube's collapsed "Read more" comment body. It stops at the first scrollable ancestor (content there is reachable by scrolling, and moving a panel out of a custom-scrollbar mask collapsed NHK's dialog). Call it again after a panel grows; for the notes panel that is after the action and chat rows are added.
 
 ## Video Frame Translation Feature
 
@@ -247,6 +249,10 @@ After generating, validate each file is exactly 1280x800 and its PNG IHDR is col
 ## Writing Style
 
 Do not use em-dashes (or en-dashes used as em-dashes) anywhere: README, docs, commit messages, PRs, and on-image screenshot text. They read as AI-generated. Use a colon, a comma, parentheses, or two sentences instead.
+
+## Feature index
+
+- Page compatibility testing: `docs/page-corpus-testing.md`, run with `npm run test:pages` (live sites, about 15 minutes, not part of `npm test`). It drives headless Chrome over DevTools with a stubbed `chrome.runtime`; DevTools-created isolated worlds inherit page CSP and Trusted Types while real content scripts do not, so the harness bypasses CSP, and findings that only appear under CSP must be confirmed in the real extension.
 
 ## Agent Maintenance Rule
 
