@@ -255,6 +255,7 @@ Do not use em-dashes (or en-dashes used as em-dashes) anywhere: README, docs, co
 
 ## Feature index
 
+- Chrome Web Store releases: `docs/webstore-publishing.md`, `npm run webstore -- status|upload|submit` (API v2; credentials `CWS_CLIENT_ID`/`CWS_CLIENT_SECRET`/`CWS_REFRESH_TOKEN` in `agents_secret.md`). Browser tools cannot drive the developer dashboard (Chromium blocks extensions on Web Store pages). The OAuth app is in Testing, so the refresh token expires after 7 days; rerun `npm run webstore:token` on `invalid_grant`. Only `submit` when Seth asks for the release.
 - Live provider testing: `docs/live-provider-testing.md`, run with `npm run test:live`. Seth requires regression testing to include real API calls for every provider and model (text, image, TTS) whenever provider, model, or request code changes; unit tests alone are not enough. Keys come from the git-ignored `agents_secret.md`.
 - Page compatibility testing: `docs/page-corpus-testing.md`, run with `npm run test:pages` (live sites, about 15 minutes, not part of `npm test`). It drives headless Chrome over DevTools with a stubbed `chrome.runtime`; DevTools-created isolated worlds inherit page CSP and Trusted Types while real content scripts do not, so the harness bypasses CSP, and findings that only appear under CSP must be confirmed in the real extension.
 

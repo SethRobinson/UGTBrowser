@@ -6,7 +6,9 @@
     "test": "node --experimental-default-type=module --test",
     "test:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/live-providers/run.mjs",
     "test:pages": "node tools/page-corpus/run.mjs",
-    "package": "node package-extension.js"
+    "package": "node package-extension.js",
+    "webstore": "node tools/webstore/publish.mjs",
+    "webstore:token": "node tools/webstore/get-refresh-token.mjs"
   },
   "keywords": [
     "chrome-extension",
