@@ -65,16 +65,21 @@ This project was developed with significant assistance from AI tools.  I mean, y
 
 ## Version History
 
-**v2.2.1** (Current)
+**v2.3.0** (Current)
 * Added GPT-6.1 Sol/Terra, GPT-6 Astra/Luna, Claude Sonnet/Opus/Haiku 5.5, Claude Fable 5.1, Gemini 3.8 Flash, Gemini 4 Argon, and Gemini 3.6 Flash model choices (GPT-5.6, Claude 5, and older choices remain available)
 * Moved to Anthropic API version 2026-10-21, with automatic server-side fallback when a Claude safety classifier declines a request
 * Image and video-frame translation now use GPT Image 2.5 Flare by default, with GPT Image 2.5 Sunburst selectable in the Image settings tab
-* Improved thinking and reasoning compatibility across all supported providers
-* Refreshed ElevenLabs text-to-speech choices with Eleven v4, Eleven v4 Turbo, Eleven v3, and Flash models
+* Added Eleven v4 and Eleven v4 Turbo text-to-speech choices
+* Saved Gemini 3.7 Flash and 3.5 Flash choices move to Gemini 3.8 Flash and 3.6 Flash, which Google now routes them to
 * Fixed selected-text translation, lessons, and questions doing nothing on pages that render text inside a shadow DOM (such as Yahoo! Auctions item descriptions)
 * Fixed translation notes, the Show Original button, and the Ask and Lesson panels being cut off inside collapsed comments (such as YouTube's "Read more") and fixed-height cards
-* Selected-text translation no longer sends or replaces inline styles, scripts, or hidden text inside the selection
 * Fixed only part of a multi-line selection being translated on pages that clear the selection on right-click (such as YouTube comments)
+* Selected-text translation no longer sends or replaces inline styles, scripts, or hidden text inside the selection
+
+**v2.2.1**
+* Added GPT-5.6, Claude 5, Gemini 3.7, and Gemini 3.5 model choices
+* Improved thinking and reasoning compatibility across all supported providers
+* Refreshed ElevenLabs text-to-speech choices with Eleven v3 and Flash models
 * Migrated retired provider model choices to supported replacements
 * Fixed a CORS issue when translating images and switching between original and translated results
 * Fixed image translations completing incorrectly when the target image was scrolled offscreen
