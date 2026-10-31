@@ -16,7 +16,7 @@ import {
   unifiedDefaultPrompt
 } from '../shared/constants.js';
 
-import { isRestrictedUrl, supportsTemperature } from '../shared/utils.js';
+import { isRestrictedUrl, supportsTemperature, normalizeImageTranslationModel } from '../shared/utils.js';
 import { buildModelDefaultsMigration } from '../shared/model-migration.js';
 
 import { fetchFromOpenAI, fetchFromOpenAIStreaming } from './api/openai.js';
@@ -1420,6 +1420,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       'targetLanguage',
       'customLanguage',
       'imageTranslationPromptTemplate',
+      'imageTranslationModel',
       'openaiApiKey'
     ]);
     const targetPromise = sendMessageToFrame(tab.id, frameId, {
@@ -1536,7 +1537,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       imageByteLength,
       warning: capture.warning,
       requestedSize: size,
-      model: 'gpt-image-2',
+      model: normalizeImageTranslationModel(data.imageTranslationModel),
       quality: 'low',
       outputFormat: 'png',
       prompt: imageTranslationPrompt
@@ -1549,7 +1550,7 @@ async function handleImageTranslateMenuClick(info, tab) {
       imageDataUrl: capture.imageDataUrl,
       apiKey: data.openaiApiKey,
       prompt: imageTranslationPrompt,
-      model: 'gpt-image-2',
+      model: normalizeImageTranslationModel(data.imageTranslationModel),
       quality: 'low',
       size,
       outputFormat: 'png',
@@ -1592,6 +1593,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       'languageMode',
       'targetLanguage',
       'customLanguage',
+      'imageTranslationModel',
       'openaiApiKey'
     ]);
 
@@ -1669,7 +1671,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       imageByteLength,
       warning: capture.warning,
       requestedSize: size,
-      model: 'gpt-image-2',
+      model: normalizeImageTranslationModel(data.imageTranslationModel),
       quality: 'low',
       outputFormat: 'png',
       prompt: videoFramePrompt
@@ -1682,7 +1684,7 @@ async function handleVideoFrameTranslateMenuClick(info, tab) {
       imageDataUrl: capture.imageDataUrl,
       apiKey: data.openaiApiKey,
       prompt: videoFramePrompt,
-      model: 'gpt-image-2',
+      model: normalizeImageTranslationModel(data.imageTranslationModel),
       quality: 'low',
       size,
       outputFormat: 'png',

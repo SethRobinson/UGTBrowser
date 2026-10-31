@@ -94,14 +94,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else {
       // Normal mode: insert after selection
       // Get the selection range - use same approach as translate which works correctly
-      let activeRange = savedRange;
-      
-      if (!activeRange) {
-        const currentSelection = document.getSelection();
-        if (currentSelection && currentSelection.rangeCount > 0) {
-          activeRange = currentSelection.getRangeAt(0).cloneRange();
-        }
-      }
+      const activeRange = getActiveSelectionRange();
       
       // Insert after the selection, but OUTSIDE any anchor elements
       if (activeRange) {
@@ -705,14 +698,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     } else {
       // Normal mode: insert after selection
       // Get the selection range
-      let activeRange = savedRange;
-      
-      if (!activeRange) {
-        const currentSelection = document.getSelection();
-        if (currentSelection && currentSelection.rangeCount > 0) {
-          activeRange = currentSelection.getRangeAt(0).cloneRange();
-        }
-      }
+      const activeRange = getActiveSelectionRange();
       
       // Insert after the selection, but OUTSIDE any anchor elements
       if (activeRange) {
@@ -1923,7 +1909,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Toggle all translations in a batch between original and translated text
   function toggleAllTranslations(batchId, btn) {
-    const segments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    const segments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
     const currentlyShowing = btn.getAttribute('data-showing');
     
     segments.forEach(span => {
@@ -2083,7 +2069,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
 
   // Check if any segments in a batch actually changed and need a toggle
   function batchHasChangedSegments(batchId) {
-    const segments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
+    const segments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${batchId}"]`);
     for (const span of segments) {
       const originalText = span.getAttribute('data-original-text');
       const translatedText = span.getAttribute('data-translated-text');
@@ -3877,10 +3863,109 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
   }, true);
 
+  // Chrome rescopes a selection made inside a shadow root (for example the Yahoo
+  // Auctions item description) to a collapsed range at the shadow host, while
+  // Selection.toString() still returns the text. getComposedRanges() is the only
+  // way to recover the real range, and it needs the shadow roots passed in.
+  function collectOpenShadowRoots(root, roots = []) {
+    if (!root) return roots;
+    if (root.shadowRoot) {
+      roots.push(root.shadowRoot);
+      collectOpenShadowRoots(root.shadowRoot, roots);
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let element;
+    while ((element = walker.nextNode())) {
+      if (element.shadowRoot) {
+        roots.push(element.shadowRoot);
+        collectOpenShadowRoots(element.shadowRoot, roots);
+      }
+    }
+    return roots;
+  }
+
+  function getComposedSelectionRange(selection, shadowRoots) {
+    if (!shadowRoots.length || typeof selection.getComposedRanges !== 'function') return null;
+    let composedRanges;
+    try {
+      composedRanges = selection.getComposedRanges({ shadowRoots });
+    } catch {
+      // Early Chrome builds took the shadow roots as rest arguments.
+      try {
+        composedRanges = selection.getComposedRanges(...shadowRoots);
+      } catch {
+        return null;
+      }
+    }
+    const composed = composedRanges?.[0];
+    if (!composed || composed.collapsed) return null;
+
+    const range = document.createRange();
+    try {
+      range.setStart(composed.startContainer, composed.startOffset);
+      range.setEnd(composed.endContainer, composed.endOffset);
+    } catch {
+      return null;
+    }
+    // A selection that crosses a shadow boundary cannot be one Range; setEnd
+    // collapses it, so treat that as unrecoverable.
+    return range.collapsed ? null : range;
+  }
+
+  // Returns the selection's range, reaching into open shadow roots when Chrome
+  // has rescoped the selection to a shadow host. fullScan walks the whole page
+  // for shadow roots; without it only the host under the rescoped range is tried.
+  function getSelectionRangeDeep(selection = document.getSelection(), { fullScan = true } = {}) {
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!range.collapsed || !selection.toString()) {
+      return range.cloneRange();
+    }
+
+    const container = range.startContainer;
+    const hostCandidate = container.childNodes?.[range.startOffset] || container;
+    const deepRange =
+      getComposedSelectionRange(selection, collectOpenShadowRoots(hostCandidate.nodeType === Node.ELEMENT_NODE ? hostCandidate : null)) ||
+      (fullScan ? getComposedSelectionRange(selection, collectOpenShadowRoots(document.documentElement)) : null);
+    return deepRange || range.cloneRange();
+  }
+
+  // Range to act on for a context-menu command: the range saved on selectionchange
+  // (survives pages that clear the selection on right-click), else the live selection.
+  function getActiveSelectionRange() {
+    if (savedRange && !savedRange.collapsed) return savedRange;
+    return getSelectionRangeDeep() || savedRange;
+  }
+
+  // Shadow roots that hold translation segments; document.querySelector cannot see into them.
+  const translationShadowRoots = new Set();
+
+  function querySegments(selector) {
+    const results = [...document.querySelectorAll(selector)];
+    for (const root of translationShadowRoots) {
+      if (!root.host?.isConnected) {
+        translationShadowRoots.delete(root);
+        continue;
+      }
+      results.push(...root.querySelectorAll(selector));
+    }
+    return results;
+  }
+
+  function querySegment(selector) {
+    const match = document.querySelector(selector);
+    if (match) return match;
+    for (const root of translationShadowRoots) {
+      const shadowMatch = root.querySelector(selector);
+      if (shadowMatch) return shadowMatch;
+    }
+    return null;
+  }
+
   document.addEventListener("selectionchange", () => {
-    const sel = document.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      savedRange = sel.getRangeAt(0).cloneRange();
+    const range = getSelectionRangeDeep(document.getSelection(), { fullScan: false });
+    if (range) {
+      savedRange = range;
     }
   });
 
@@ -4385,7 +4470,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             
             // console.log(`Found tagged translation: ID=${ugtId}, Content Length=${translatedContent.length}`);
             
-            const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+            const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               let finalTranslatedContent = translatedContent;
               if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
@@ -4529,7 +4614,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
             // If segments can be complex HTML that shouldn't be joined by newlines, adjust accordingly.
             fullyAssembledTranslation += translatedContent + "\n"; 
 
-            const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+            const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
             if (targetSpan) {
               let finalTranslatedContent = translatedContent;
               if (currentTranslationSettings && typeof currentTranslationSettings.targetLang === 'string' &&
@@ -4706,7 +4791,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 let collectedOriginalText = "";
                 let collectedTranslatedText = "";
                 if (currentTranslationBatchId) {
-                  const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                  const batchSegments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
                   const originalTexts = [];
                   const translatedTexts = [];
                   batchSegments.forEach(span => {
@@ -4842,7 +4927,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
                 let translatedContent = match[2];
                 // Refine translatedContent
                 translatedContent = getInnermostTranslatedSegment(ugtId, translatedContent, tagRegex);
-                const targetSpan = document.querySelector(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
+                const targetSpan = querySegment(`span.${UGT_SEGMENT_CLASS}[data-ugt-id='${ugtId}']`);
                 if (targetSpan) targetSpan.textContent = translatedContent;
                 lastIndex = tagRegex.lastIndex;
             }
@@ -4872,30 +4957,26 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
       return;
     }
     
-    let activeRange = savedRange; // Prioritize the range captured by selectionchange
+    // Prefer the range captured by selectionchange; fall back to the live selection,
+    // reaching into shadow roots if Chrome rescoped it to a shadow host.
+    const activeRange = getActiveSelectionRange();
 
     if (!activeRange) {
-      // If savedRange is not set (likely on first run after script injection,
-      // or if selectionchange didn't fire for some reason),
-      // try to get the current selection directly.
-      // The presence of selectedText (from info.selectionText) strongly implies a selection was intended.
-      const currentSelection = document.getSelection();
-      if (currentSelection && currentSelection.rangeCount > 0) {
-        activeRange = currentSelection.getRangeAt(0).cloneRange();
-        // console.log("UGTBrowser: Using freshly fetched selection as savedRange was not set.");
-      } else {
-        // This means selectedText (from background) was present, but getSelection() is now empty on the page.
-        // This could happen if the selection was programmatically cleared by the page
-        // or due to focus changes between the context menu click and this execution.
-        console.warn("UGTBrowser: selectedText was present, but document.getSelection() is now empty.");
-        showCustomError("UGTBrowser: Selection was lost or could not be retrieved from the page.");
-        return;
-      }
+      // selectedText (from background) was present, but the page has no selection now.
+      // This could happen if the selection was programmatically cleared by the page
+      // or due to focus changes between the context menu click and this execution.
+      console.warn("UGTBrowser: selectedText was present, but document.getSelection() is now empty.");
+      showCustomError("UGTBrowser: Selection was lost or could not be retrieved from the page.");
+      return;
     }
 
     initialInsertionHasOccurred = false;
 
     const range = activeRange.cloneRange(); // Use the determined activeRange
+    const rangeRoot = range.commonAncestorContainer.getRootNode();
+    if (rangeRoot instanceof ShadowRoot) {
+      translationShadowRoots.add(rangeRoot);
+    }
 
     const segmentsToTranslate = [];
     let segmentCounter = 0;
@@ -4970,8 +5051,9 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
     }
 
     if (segmentsToTranslate.length === 0) {
-      console.log("No translatable text segments found.");
+      console.warn("UGTBrowser: No translatable text segments found in the selection range.");
       hideOverlay(true);
+      showCustomError("UGTBrowser: Could not locate the selected text on the page. Try selecting it again.");
       return;
     }
 
@@ -5191,7 +5273,7 @@ if (typeof window.ugtBrowserInitialized === 'undefined') {
               let collectedOriginalText = "";
               let collectedTranslatedText = "";
               if (currentTranslationBatchId) {
-                const batchSegments = document.querySelectorAll(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
+                const batchSegments = querySegments(`span.${UGT_SEGMENT_CLASS}[data-ugt-batch="${currentTranslationBatchId}"]`);
                 const originalTexts = [];
                 const translatedTexts = [];
                 batchSegments.forEach(span => {

@@ -2,11 +2,12 @@
 // OpenAI API integration for translation and chat
 
 import { supportsTemperature, usesOpenAIResponsesApi, getReasoningEffort } from '../../shared/utils.js';
+import { DEFAULT_IMAGE_TRANSLATION_MODEL } from '../../shared/constants.js';
 
 const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-export const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
+export const DEFAULT_OPENAI_MODEL = "gpt-6.1-sol";
 
 /**
  * Non-streaming OpenAI API call
@@ -50,7 +51,7 @@ export async function editImageWithOpenAI({
   imageBlob,
   prompt,
   apiKey,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_TRANSLATION_MODEL,
   quality = "low",
   size = "auto",
   outputFormat = "png",

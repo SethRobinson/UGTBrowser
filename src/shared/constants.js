@@ -3,6 +3,10 @@
 
 // Models that don't support temperature settings
 export const noTemperatureModels = [
+  "gpt-6.1-sol",
+  "gpt-6.1-terra",
+  "gpt-6-luna",
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -14,30 +18,38 @@ export const noTemperatureModels = [
   "gpt-5.2",
   "gpt-5-mini",
   "gpt-5-nano",
+  "claude-sonnet-5-5",
+  "claude-opus-5-5",
+  "claude-fable-5-1",
+  "claude-haiku-5-5",
   "claude-sonnet-5",
   "claude-opus-5",
   "claude-fable-5",
   "claude-opus-4-8",
-  "gemini-3.7-flash",
-  "gemini-3.7-flash-medium",
-  "gemini-3.7-flash-high",
-  "gemini-3.7-flash-low",
-  "gemini-3.5-flash",
+  "gemini-4-argon",
+  "gemini-3.8-flash",
+  "gemini-3.8-flash-medium",
+  "gemini-3.8-flash-high",
+  "gemini-3.8-flash-low",
+  "gemini-3.6-flash",
+  "gemini-3.6-flash-medium",
+  "gemini-3.6-flash-high",
+  "gemini-3.6-flash-low",
   "gemini-3.5-flash-lite",
-  "gemini-3.5-flash-medium",
-  "gemini-3.5-flash-high",
-  "gemini-3.5-flash-low",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "gemini-3.1-pro-preview",
-  "gemini-3-pro-preview",
   "gemini-3-flash-preview"
 ];
 
 // Provider model configurations
 export const providerModels = {
   openai: [
+    "gpt-6.1-sol",
+    "gpt-6.1-terra",
+    "gpt-6-luna",
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -51,6 +63,10 @@ export const providerModels = {
     "gpt-5-nano"
   ],
   anthropic: [
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-haiku-5-5",
     "claude-sonnet-5",
     "claude-opus-5",
     "claude-fable-5",
@@ -61,15 +77,15 @@ export const providerModels = {
     "claude-opus-4-5"
   ],
   gemini: [
-    "gemini-3.7-flash-medium",
-    "gemini-3.7-flash-high",
-    "gemini-3.7-flash-low",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-high",
+    "gemini-3.8-flash-low",
+    "gemini-4-argon",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-high",
+    "gemini-3.6-flash-low",
     "gemini-3.5-flash-lite",
-    "gemini-3.5-flash-medium",
-    "gemini-3.5-flash-high",
-    "gemini-3.5-flash-low",
     "gemini-3.1-pro-preview",
-    "gemini-3-pro-preview",
     "gemini-3-flash-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
@@ -78,22 +94,38 @@ export const providerModels = {
 };
 
 export const modelDisplayNames = {
+  "gpt-6.1-sol": "GPT-6.1 Sol",
+  "gpt-6.1-terra": "GPT-6.1 Terra",
+  "gpt-6-luna": "GPT-6 Luna",
+  "gpt-6-astra": "GPT-6 Astra",
   "gpt-5.6-sol": "GPT-5.6 Sol",
   "gpt-5.6-terra": "GPT-5.6 Terra",
   "gpt-5.6-luna": "GPT-5.6 Luna",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-fable-5-1": "Claude Fable 5.1 (30-day retention)",
+  "claude-haiku-5-5": "Claude Haiku 5.5",
   "claude-sonnet-5": "Claude Sonnet 5",
   "claude-opus-5": "Claude Opus 5",
   "claude-fable-5": "Claude Fable 5 (30-day retention)",
-  "gemini-3.7-flash-medium": "Gemini 3.7 Flash (Medium)",
-  "gemini-3.7-flash-high": "Gemini 3.7 Flash (High)",
-  "gemini-3.7-flash-low": "Gemini 3.7 Flash (Low)",
+  "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
+  "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+  "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
+  "gemini-4-argon": "Gemini 4 Argon",
+  "gemini-3.6-flash-medium": "Gemini 3.6 Flash (Medium)",
+  "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
+  "gemini-3.6-flash-low": "Gemini 3.6 Flash (Low)",
   "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite (Minimal)",
-  "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
-  "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
-  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)",
-  "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
-  "gemini-3-pro-preview": "Gemini 3 Pro Preview (legacy alias)"
+  "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview"
 };
+
+// OpenAI image-edit models for image and video-frame translation (first is the default)
+export const imageTranslationModels = [
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2"
+];
+export const DEFAULT_IMAGE_TRANSLATION_MODEL = imageTranslationModels[0];
 
 // Default lesson prompt template
 export const defaultLessonPrompt = `Create a comprehensive lesson to help me learn about this Japanese text and its translation: "{0}"

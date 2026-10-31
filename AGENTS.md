@@ -109,7 +109,7 @@ Relevant code:
 
 Current image edit defaults:
 
-- Model: `gpt-image-2`
+- Model: `gpt-image-2.5-flare`, chosen in the settings Image tab and stored as `chrome.storage.local.imageTranslationModel` (`gpt-image-2.5-sunburst` and the previous `gpt-image-2` are selectable). The list lives in both `src/shared/constants.js` (`imageTranslationModels`) and `options.js`, and `normalizeImageTranslationModel` maps unknown saved values to the default. Video-frame translation uses the same setting.
 - Quality: `low`
 - Output format: `png`
 - Size: chosen dynamically by `chooseImageEditSize` near the minimum legal pixel budget while preserving the clicked image aspect ratio.
@@ -121,6 +121,10 @@ Known limitations:
 - The first implementation supports images in the main page frame. Cross-frame image support would need additional frame-aware capture and coordinate handling.
 - Full-image capture depends on browser access to the clicked image source or to a temporary direct source tab. When both are blocked, the fallback still translates only the visible screenshot crop.
 - The result is generative image localization, so dense document text can still be imperfect.
+
+## Selected Text And Shadow DOM
+
+Chrome rescopes a selection made inside a shadow root (for example the Yahoo! Auctions item description, which renders seller HTML in an open shadow root) to a collapsed range at the shadow host, while `Selection.toString()` and the context menu's `selectionText` still contain the text. Code that needs the selection's DOM range must use `getSelectionRangeDeep()` / `getActiveSelectionRange()` in `contentScript.js`, which recover the real range with `Selection.getComposedRanges({ shadowRoots })`; a plain `getRangeAt(0)` finds no text nodes and the translation silently did nothing before this was fixed. Translation segments can therefore live inside shadow roots, so look them up with `querySegment()` / `querySegments()` (which also search `translationShadowRoots`), never `document.querySelector` directly. A selection that crosses a shadow boundary cannot become one `Range` and is not supported.
 
 ## Video Frame Translation Feature
 
@@ -147,6 +151,7 @@ Provider keys are stored in `chrome.storage.local` by `options.js`. Existing key
 - `elevenlabsApiKey`
 - `googleTtsApiKey`
 - `imageTranslationPromptTemplate`
+- `imageTranslationModel`
 
 Do not pass provider keys into page context. Keep provider requests in the background/service worker or another extension-owned context. `chrome.storage.local` is restricted to `TRUSTED_CONTEXTS`, `contentScript.js` must not access storage directly, and the persisted nested `settings` object must never contain an `apiKey` field. Provider keys stay in their top-level storage fields and are resolved by `src/background/credential-security.js`.
 
@@ -164,17 +169,17 @@ The model catalogs are duplicated in `options.js` and `src/shared/constants.js`;
 
 Current text defaults:
 
-- OpenAI defaults to `gpt-5.6-sol`; `gpt-5.6-terra` and `gpt-5.6-luna` provide lower-cost roles. GPT-5.6, GPT-5.5, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API. GPT-5.6 preserves the existing thinking toggle behavior: low reasoning when disabled and medium when enabled. Do not send `temperature` to GPT-5.6.
-- Anthropic defaults to `claude-sonnet-5`, with `claude-opus-5` and `claude-fable-5` selectable. Sonnet 5 and Opus 5 explicitly disable adaptive thinking unless the Anthropic thinking toggle is enabled; Fable 5 always uses adaptive thinking and has a 30-day API data retention policy. Claude 5 requests omit non-default sampling parameters, allow 16,384 output tokens, and treat `stop_reason: refusal` as a user-visible error.
-- Gemini defaults to `gemini-3.7-flash-medium`, shown in settings as `Gemini 3.7 Flash (Medium)`. The low, medium, and high entries normalize to API model ID `gemini-3.7-flash` with the matching `thinkingConfig.thinkingLevel`. `gemini-3.5-flash-lite` uses fixed minimal thinking. The retired `gemini-3-pro-preview` choice normalizes to `gemini-3.1-pro-preview`. Gemini 2.5 Pro cannot disable thinking, so the disabled toggle uses its minimum supported budget of 128. Older Gemini choices and aliases remain selectable for saved-setting compatibility. Do not send sampling parameters to Gemini 3.x models.
+- OpenAI defaults to `gpt-6.1-sol`; `gpt-6.1-terra`, `gpt-6-luna`, and the flagship `gpt-6-astra` are also listed, and the GPT-5.6 family stays selectable. GPT-6.x, GPT-5.6, GPT-5.5, GPT-5.4 variants, and `gpt-5.2-pro` use the OpenAI Responses API. The thinking toggle maps to reasoning effort low (off) or medium (on) for GPT-6.x and GPT-5.6; GPT-6 Astra and GPT-6.1 Sol have no `none` level. Do not send `temperature` to GPT-6.x or GPT-5.6.
+- Anthropic defaults to `claude-sonnet-5-5`, with `claude-opus-5-5`, `claude-fable-5-1`, `claude-haiku-5-5`, and the Claude 5 and 4.x models selectable. Requests send `anthropic-version: 2026-10-21`, which rejects `temperature`/`top_p`/`top_k` on every model, so Anthropic requests never send sampling parameters. Opus 5.5 and Sonnet 5.5 reject `thinking: {type: "disabled"}`, so for the 5.5 models the thinking toggle maps to `output_config.effort` (low when off, high when on) with adaptive thinking; Sonnet 5 and Opus 5 keep the disabled/adaptive toggle; Fable 5 and 5.1 always use adaptive thinking and have a 30-day API data retention policy. Fable 5.1, Opus 5.5, Opus 5, and Sonnet 5.5 send `fallbacks: "default"` with the `server-side-fallback-2026-07-01` beta header so a safety-classifier refusal is retried server-side (Haiku 5.5 has no server-side fallback). Claude 5.x requests allow 32,000 output tokens because thinking counts toward `max_tokens`, and `stop_reason: refusal` is a user-visible error.
+- Gemini defaults to `gemini-3.8-flash-medium`, shown in settings as `Gemini 3.8 Flash (Medium)`. The low, medium, and high entries normalize to API model ID `gemini-3.8-flash` with the matching `thinkingConfig.thinkingLevel`; `gemini-3.6-flash-*` entries work the same way, and `gemini-4-argon` uses the thinking toggle (low/high). `gemini-3.5-flash-lite` uses fixed minimal thinking. Google deprecated Gemini 3.7 Flash and 3.5 Flash (routed to 3.8 and 3.6 Flash) and shut down 3 Pro Preview, so saved 3.7/3.5 variants resolve to the 3.8/3.6 variant at the same level and `gemini-3-pro-preview` to `gemini-3.1-pro-preview`. Gemini 2.5 Pro cannot disable thinking, so the disabled toggle uses its minimum supported budget of 128. Gemini requests send the key in the `x-goog-api-key` header (not the URL) and never send sampling parameters (deprecated by Google).
 
 GPT-5.2 Chat Completions requests must omit `temperature`; the API rejects non-default temperature when reasoning is enabled.
 
 ## ElevenLabs TTS Models
 
-The settings page lists `eleven_v3`, `eleven_multilingual_v2`, `eleven_flash_v2_5`, and `eleven_flash_v2`. Retired saved choices are normalized in both the settings UI and the request function: Turbo v2.5 to Flash v2.5, Turbo v2 and Monolingual v1 to Flash v2, and Multilingual v1 to Multilingual v2.
+The settings page lists `eleven_multilingual_v2` (the default), `eleven_v4`, `eleven_v4_turbo`, `eleven_v3`, `eleven_flash_v2_5`, and `eleven_flash_v2`. Retired saved choices are normalized in both the settings UI and the request function: Turbo v2.5 to Flash v2.5, Turbo v2 and Monolingual v1 to Flash v2, and Multilingual v1 to Multilingual v2.
 
-Model default migration is versioned by `modelDefaultsMigrationVersion`. It upgrades only exact former defaults and leaves custom or other explicit model selections unchanged. Provider request and migration regression tests run with `npm test`.
+Model migration is versioned by `modelDefaultsMigrationVersion` (currently 2) in `src/shared/model-migration.js`. Steps run in order for installs below each step's version, so a version-0 install chains through every step. OpenAI and Anthropic steps upgrade only exact former defaults and leave custom or other explicit model selections unchanged; the Gemini version 2 step also moves deprecated or shut-down IDs to the model Google routes them to. When adding a step, mirror any picker-visible Gemini renames in `legacyGeminiPickerModels` in `options.js`. Provider request and migration regression tests run with `npm test`.
 
 ## Build And Smoke Checks
 

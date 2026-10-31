@@ -1,24 +1,44 @@
 // src/background/api/gemini.js
 // Google Gemini API integration for translation and chat
 
-import { supportsTemperature, isGemini3Model, supportsGeminiThinking } from '../../shared/utils.js';
+import { usesGeminiThinkingLevel, supportsGeminiThinking } from '../../shared/utils.js';
 
-const GEMINI_37_FLASH_MODEL_ID = "gemini-3.7-flash";
-const GEMINI_35_FLASH_MODEL_ID = "gemini-3.5-flash";
-export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash-medium";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_38_FLASH_MODEL_ID = "gemini-3.8-flash";
+const GEMINI_36_FLASH_MODEL_ID = "gemini-3.6-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash-medium";
 
+// Picker variants with a fixed thinking level. Google routes the deprecated
+// Gemini 3.7 Flash to 3.8 Flash and 3.5 Flash to 3.6 Flash, so saved 3.7/3.5
+// choices resolve to those models at the same level. 3 Pro Preview is shut down.
 const GEMINI_MODEL_VARIANTS = {
   "gemini-3-pro-preview": { modelId: "gemini-3.1-pro-preview", thinkingLevel: null },
-  "gemini-3.7-flash": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "medium" },
-  "gemini-3.7-flash-low": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "low" },
-  "gemini-3.7-flash-medium": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "medium" },
-  "gemini-3.7-flash-high": { modelId: GEMINI_37_FLASH_MODEL_ID, thinkingLevel: "high" },
-  "gemini-3.5-flash-lite": { modelId: "gemini-3.5-flash-lite", thinkingLevel: "minimal" },
-  "gemini-3.5-flash": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
-  "gemini-3.5-flash-low": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "low" },
-  "gemini-3.5-flash-medium": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "medium" },
-  "gemini-3.5-flash-high": { modelId: GEMINI_35_FLASH_MODEL_ID, thinkingLevel: "high" }
+  "gemini-3.8-flash": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.8-flash-low": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.8-flash-medium": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.8-flash-high": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "high" },
+  "gemini-3.7-flash": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.7-flash-low": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.7-flash-medium": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.7-flash-high": { modelId: GEMINI_38_FLASH_MODEL_ID, thinkingLevel: "high" },
+  "gemini-3.6-flash": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.6-flash-low": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.6-flash-medium": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.6-flash-high": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "high" },
+  "gemini-3.5-flash": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.5-flash-low": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "low" },
+  "gemini-3.5-flash-medium": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "medium" },
+  "gemini-3.5-flash-high": { modelId: GEMINI_36_FLASH_MODEL_ID, thinkingLevel: "high" },
+  "gemini-3.5-flash-lite": { modelId: "gemini-3.5-flash-lite", thinkingLevel: "minimal" }
 };
+
+// The key goes in a header rather than the URL so it stays out of request logs.
+function getGeminiHeaders(apiKey) {
+  return {
+    "Content-Type": "application/json",
+    "x-goog-api-key": apiKey
+  };
+}
 
 export function resolveGeminiModel(model) {
   const requestedModel = model || DEFAULT_GEMINI_MODEL;
@@ -41,7 +61,7 @@ export function addThinkingConfig(generationConfig, modelId, thinkingLevel, thin
   }
 
   const thinkingConfig = {};
-  if (isGemini3Model(modelId)) {
+  if (usesGeminiThinkingLevel(modelId)) {
     thinkingConfig.thinkingLevel = thinkingEnabled ? "high" : "low";
   } else if (modelId.toLowerCase() === "gemini-2.5-pro") {
     thinkingConfig.thinkingBudget = thinkingEnabled ? -1 : 128;
@@ -59,12 +79,9 @@ export async function fetchFromGemini(prompt, model, apiKey) {
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   const { modelId, thinkingLevel } = resolveGeminiModel(model);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+  const endpoint = `${GEMINI_API_BASE}/${modelId}:generateContent`;
   
-  const generationConfig = { maxOutputTokens: 8192 };
-  if (supportsTemperature(modelId)) {
-    generationConfig.temperature = 0.1;
-  }
+  const generationConfig = { maxOutputTokens: 16384 };
   addThinkingConfig(generationConfig, modelId, thinkingLevel, false, false);
   
   const requestBody = {
@@ -74,7 +91,7 @@ export async function fetchFromGemini(prompt, model, apiKey) {
   
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getGeminiHeaders(apiKey),
     body: JSON.stringify(requestBody)
   });
   
@@ -118,12 +135,8 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
   let lastChunkTime = Date.now();
   
   try {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?key=${apiKey}`;
-    const generationConfig = { maxOutputTokens: 16384 };
-    
-    if (supportsTemperature(modelId)) {
-      generationConfig.temperature = 0.1;
-    }
+    const endpoint = `${GEMINI_API_BASE}/${modelId}:streamGenerateContent`;
+    const generationConfig = { maxOutputTokens: 32768 };
     
     const thinkingConfig = addThinkingConfig(generationConfig, modelId, thinkingLevel, thinkingEnabled);
     if (thinkingConfig) {
@@ -149,7 +162,7 @@ export async function fetchFromGeminiStreaming(prompt, model, apiKey, port, upda
     console.log("Gemini: Fetching model:", modelId);
     const fetchOptions = {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getGeminiHeaders(apiKey),
       body: JSON.stringify(requestBody)
     };
     
@@ -435,12 +448,9 @@ export async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendCh
   if (!apiKey) throw new Error("Google Gemini API key is required");
   
   const { modelId, thinkingLevel } = resolveGeminiModel(model);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?key=${apiKey}`;
+  const endpoint = `${GEMINI_API_BASE}/${modelId}:streamGenerateContent`;
   
-  const generationConfig = { maxOutputTokens: 8192 };
-  if (supportsTemperature(modelId)) {
-    generationConfig.temperature = 0.7;
-  }
+  const generationConfig = { maxOutputTokens: 16384 };
   addThinkingConfig(generationConfig, modelId, thinkingLevel, settings.geminiThinkingEnabled === true);
   
   const requestBody = {
@@ -450,7 +460,7 @@ export async function fetchChatFromGeminiStreaming(prompt, model, apiKey, sendCh
   
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getGeminiHeaders(apiKey),
     body: JSON.stringify(requestBody),
     signal: abortSignal
   });

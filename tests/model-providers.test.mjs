@@ -4,12 +4,15 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 import {
+  DEFAULT_IMAGE_TRANSLATION_MODEL,
+  imageTranslationModels,
   modelDisplayNames,
   noTemperatureModels,
   providerModels
 } from '../src/shared/constants.js';
 import {
   getReasoningEffort,
+  normalizeImageTranslationModel,
   supportsTemperature,
   usesOpenAIResponsesApi
 } from '../src/shared/utils.js';
@@ -31,22 +34,25 @@ import {
   buildAnthropicRequestBody,
   DEFAULT_ANTHROPIC_MODEL,
   extractAnthropicText,
+  getAnthropicHeaders,
   parseAnthropicSseEvent,
   readAnthropicSseStream
 } from '../src/background/api/anthropic.js';
 import { normalizeElevenLabsModelId } from '../src/background/api/tts.js';
 
 test('provider catalogs expose the latest defaults and preserve older choices', () => {
-  assert.equal(providerModels.openai[0], 'gpt-5.6-sol');
-  assert.equal(providerModels.anthropic[0], 'claude-sonnet-5');
-  assert.equal(providerModels.gemini[0], 'gemini-3.7-flash-medium');
+  assert.equal(providerModels.openai[0], 'gpt-6.1-sol');
+  assert.equal(providerModels.anthropic[0], 'claude-sonnet-5-5');
+  assert.equal(providerModels.gemini[0], 'gemini-3.8-flash-medium');
   assert.equal(DEFAULT_OPENAI_MODEL, providerModels.openai[0]);
   assert.equal(DEFAULT_ANTHROPIC_MODEL, providerModels.anthropic[0]);
   assert.equal(DEFAULT_GEMINI_MODEL, providerModels.gemini[0]);
-  assert.ok(providerModels.openai.includes('gpt-5.5'));
+  assert.ok(providerModels.openai.includes('gpt-5.6-sol'));
+  assert.ok(providerModels.anthropic.includes('claude-sonnet-5'));
   assert.ok(providerModels.anthropic.includes('claude-sonnet-4-6'));
-  assert.ok(providerModels.gemini.includes('gemini-3-pro-preview'));
-  assert.equal(modelDisplayNames['claude-fable-5'], 'Claude Fable 5 (30-day retention)');
+  assert.ok(providerModels.gemini.includes('gemini-4-argon'));
+  assert.ok(!providerModels.gemini.includes('gemini-3-pro-preview'));
+  assert.equal(modelDisplayNames['claude-fable-5-1'], 'Claude Fable 5.1 (30-day retention)');
 });
 
 test('classic options-page model catalogs stay synchronized with shared constants', () => {
@@ -56,13 +62,46 @@ test('classic options-page model catalogs stay synchronized with shared constant
   assert.ok(start >= 0 && end > start);
 
   const optionsCatalog = vm.runInNewContext(
-    `${optionsSource.slice(start, end)}\n({ noTemperatureModels, providerModels, modelDisplayNames })`
+    `${optionsSource.slice(start, end)}\n({ noTemperatureModels, providerModels, modelDisplayNames, imageTranslationModels })`
   );
   const normalizedOptionsCatalog = JSON.parse(JSON.stringify(optionsCatalog));
 
   assert.deepEqual(normalizedOptionsCatalog.providerModels, providerModels);
   assert.deepEqual(normalizedOptionsCatalog.modelDisplayNames, modelDisplayNames);
   assert.deepEqual(normalizedOptionsCatalog.noTemperatureModels, noTemperatureModels);
+  assert.deepEqual(normalizedOptionsCatalog.imageTranslationModels, imageTranslationModels);
+
+  const optionsHtml = readFileSync(new URL('../options.html', import.meta.url), 'utf8');
+  for (const model of imageTranslationModels) {
+    assert.match(optionsHtml, new RegExp(`<option value="${model}">`));
+  }
+});
+
+test('image translation defaults to GPT Image 2.5 Flare and keeps Sunburst selectable', () => {
+  assert.equal(DEFAULT_IMAGE_TRANSLATION_MODEL, 'gpt-image-2.5-flare');
+  assert.ok(imageTranslationModels.includes('gpt-image-2.5-sunburst'));
+  assert.equal(normalizeImageTranslationModel(undefined), 'gpt-image-2.5-flare');
+  assert.equal(normalizeImageTranslationModel('gpt-image-2.5-sunburst'), 'gpt-image-2.5-sunburst');
+  assert.equal(normalizeImageTranslationModel('gpt-image-1'), 'gpt-image-2.5-flare');
+});
+
+test('GPT-6 models use Responses with low and medium reasoning and no temperature', () => {
+  for (const model of ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6-astra']) {
+    assert.equal(usesOpenAIResponsesApi(model), true);
+    assert.equal(supportsTemperature(model), false);
+    assert.equal(getReasoningEffort(model, false), 'low');
+    assert.equal(getReasoningEffort(model, true), 'medium');
+  }
+
+  assert.deepEqual(
+    buildOpenAIResponsesRequestBody('hello', 'gpt-6.1-sol', true),
+    {
+      model: 'gpt-6.1-sol',
+      input: 'hello',
+      max_output_tokens: 16384,
+      reasoning: { effort: 'medium' }
+    }
+  );
 });
 
 test('GPT-5.6 uses Responses with the preserved low and medium reasoning levels', () => {
@@ -97,16 +136,18 @@ test('GPT-5.2 chat requests omit unsupported temperature values', () => {
   );
 });
 
-test('Claude 5 request builder applies thinking policy and omits sampling parameters', () => {
+test('Claude request builder applies thinking policy and never sends sampling parameters', () => {
   const disabled = buildAnthropicRequestBody('hello', 'claude-sonnet-5');
-  assert.equal(disabled.max_tokens, 16384);
+  assert.equal(disabled.max_tokens, 32000);
   assert.deepEqual(disabled.thinking, { type: 'disabled' });
   assert.equal('temperature' in disabled, false);
+  assert.equal('fallbacks' in disabled, false);
 
   const enabled = buildAnthropicRequestBody('hello', 'claude-opus-5', {
     settings: { anthropicThinkingEnabled: true }
   });
   assert.deepEqual(enabled.thinking, { type: 'adaptive' });
+  assert.equal(enabled.fallbacks, 'default');
 
   const fable = buildAnthropicRequestBody('hello', 'claude-fable-5', {
     settings: { anthropicThinkingEnabled: false }
@@ -114,8 +155,47 @@ test('Claude 5 request builder applies thinking policy and omits sampling parame
   assert.deepEqual(fable.thinking, { type: 'adaptive' });
 
   const legacy = buildAnthropicRequestBody('hello', 'claude-sonnet-4-6');
-  assert.equal(legacy.temperature, 0.1);
+  assert.equal('temperature' in legacy, false);
   assert.equal('thinking' in legacy, false);
+  assert.equal(legacy.max_tokens, 8192);
+});
+
+test('Claude 5.5 models map the thinking toggle to effort because thinking cannot be disabled', () => {
+  assert.deepEqual(buildAnthropicRequestBody('hello', 'claude-sonnet-5-5', { stream: true }), {
+    model: 'claude-sonnet-5-5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32000,
+    stream: true,
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'low' },
+    fallbacks: 'default'
+  });
+
+  const opusThinking = buildAnthropicRequestBody('hello', 'claude-opus-5-5', {
+    settings: { anthropicThinkingEnabled: true }
+  });
+  assert.deepEqual(opusThinking.thinking, { type: 'adaptive' });
+  assert.deepEqual(opusThinking.output_config, { effort: 'high' });
+
+  // Haiku 5.5 has no server-side fallback.
+  const haiku = buildAnthropicRequestBody('hello', 'claude-haiku-5-5');
+  assert.deepEqual(haiku.output_config, { effort: 'low' });
+  assert.equal('fallbacks' in haiku, false);
+
+  const fable51 = buildAnthropicRequestBody('hello', 'claude-fable-5-1');
+  assert.deepEqual(fable51.thinking, { type: 'adaptive' });
+  assert.equal('output_config' in fable51, false);
+  assert.equal(fable51.fallbacks, 'default');
+});
+
+test('Claude headers use API version 2026-10-21 and add the fallback beta only when requested', () => {
+  const plain = getAnthropicHeaders('key', buildAnthropicRequestBody('hi', 'claude-haiku-5-5'));
+  assert.equal(plain['anthropic-version'], '2026-10-21');
+  assert.equal(plain['x-api-key'], 'key');
+  assert.equal('anthropic-beta' in plain, false);
+
+  const withFallback = getAnthropicHeaders('key', buildAnthropicRequestBody('hi', 'claude-sonnet-5-5'));
+  assert.equal(withFallback['anthropic-beta'], 'server-side-fallback-2026-07-01');
 });
 
 test('Claude response parsing finds text blocks and surfaces HTTP-200 refusals', () => {
@@ -159,25 +239,56 @@ test('Claude streaming surfaces a terminal refusal instead of treating HTTP 200 
   assert.deepEqual(chunks, ['partial']);
 });
 
+test('Claude streaming ignores fallback switch blocks and keeps the continued text', async () => {
+  const events = [
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"fallback","from":{"model":"claude-sonnet-5-5"},"to":{"model":"claude-sonnet-5"}}}',
+    '',
+    'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"translated"}}',
+    '',
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}',
+    ''
+  ].join('\n');
+  const chunks = [];
+
+  await readAnthropicSseStream(new Response(events), null, (chunk) => chunks.push(chunk));
+  assert.deepEqual(chunks, ['translated']);
+});
+
 test('Gemini picker variants normalize to official model IDs and fixed thinking levels', () => {
   assert.deepEqual(resolveGeminiModel(), {
-    requestedModel: 'gemini-3.7-flash-medium',
-    modelId: 'gemini-3.7-flash',
+    requestedModel: 'gemini-3.8-flash-medium',
+    modelId: 'gemini-3.8-flash',
     thinkingLevel: 'medium'
   });
-  assert.equal(resolveGeminiModel('gemini-3.7-flash-low').thinkingLevel, 'low');
+  assert.equal(resolveGeminiModel('gemini-3.8-flash-low').thinkingLevel, 'low');
   assert.deepEqual(resolveGeminiModel('gemini-3.5-flash-lite'), {
     requestedModel: 'gemini-3.5-flash-lite',
     modelId: 'gemini-3.5-flash-lite',
     thinkingLevel: 'minimal'
   });
-  assert.equal(supportsTemperature('gemini-3.7-flash'), false);
+  assert.equal(supportsTemperature('gemini-3.8-flash'), false);
+  assert.equal(supportsTemperature('gemini-2.5-flash'), false);
+
+  // Saved deprecated IDs resolve to the model Google routes them to, at the same level.
+  assert.deepEqual(resolveGeminiModel('gemini-3.7-flash-high'), {
+    requestedModel: 'gemini-3.7-flash-high',
+    modelId: 'gemini-3.8-flash',
+    thinkingLevel: 'high'
+  });
+  assert.equal(resolveGeminiModel('gemini-3.5-flash-low').modelId, 'gemini-3.6-flash');
+  assert.equal(resolveGeminiModel('gemini-3-pro-preview').modelId, 'gemini-3.1-pro-preview');
 
   const generationConfig = {};
-  addThinkingConfig(generationConfig, 'gemini-3.7-flash', 'high', false);
+  addThinkingConfig(generationConfig, 'gemini-3.8-flash', 'high', false);
   assert.deepEqual(generationConfig.thinkingConfig, { thinkingLevel: 'high' });
 
-  assert.equal(resolveGeminiModel('gemini-3-pro-preview').modelId, 'gemini-3.1-pro-preview');
+  const argonOff = {};
+  addThinkingConfig(argonOff, 'gemini-4-argon', null, false);
+  assert.deepEqual(argonOff.thinkingConfig, { thinkingLevel: 'low' });
+  const argonOn = {};
+  addThinkingConfig(argonOn, 'gemini-4-argon', null, true);
+  assert.deepEqual(argonOn.thinkingConfig, { thinkingLevel: 'high' });
+
   const proThinkingOff = {};
   addThinkingConfig(proThinkingOff, 'gemini-2.5-pro', null, false);
   assert.deepEqual(proThinkingOff.thinkingConfig, { thinkingBudget: 128 });
@@ -188,7 +299,7 @@ test('Gemini picker variants normalize to official model IDs and fixed thinking 
 
 test('ElevenLabs settings list current TTS models and normalize retired saved choices', () => {
   const optionsHtml = readFileSync(new URL('../options.html', import.meta.url), 'utf8');
-  for (const model of ['eleven_v3', 'eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_flash_v2']) {
+  for (const model of ['eleven_v4', 'eleven_v4_turbo', 'eleven_v3', 'eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_flash_v2']) {
     assert.match(optionsHtml, new RegExp(`<option value="${model}">`));
   }
   for (const retired of ['eleven_monolingual_v1', 'eleven_turbo_v2_5', 'eleven_turbo_v2']) {
@@ -200,7 +311,7 @@ test('ElevenLabs settings list current TTS models and normalize retired saved ch
   assert.equal(normalizeElevenLabsModelId('eleven_turbo_v2'), 'eleven_flash_v2');
 });
 
-test('default-model migration updates exact defaults and active nested settings once', () => {
+test('model migration chains version 1 and 2 defaults for a pre-migration install', () => {
   const patch = buildModelDefaultsMigration({
     selectedProvider: 'anthropic',
     openaiModel: 'gpt-5.5',
@@ -216,13 +327,13 @@ test('default-model migration updates exact defaults and active nested settings 
 
   assert.deepEqual(patch, {
     modelDefaultsMigrationVersion: MODEL_DEFAULTS_MIGRATION_VERSION,
-    openaiModel: 'gpt-5.6-sol',
-    anthropicModel: 'claude-sonnet-5',
-    geminiModel: 'gemini-3.7-flash-medium',
-    model: 'claude-sonnet-5',
+    openaiModel: 'gpt-6.1-sol',
+    anthropicModel: 'claude-sonnet-5-5',
+    geminiModel: 'gemini-3.8-flash-medium',
+    model: 'claude-sonnet-5-5',
     settings: {
       provider: 'anthropic',
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       targetLang: 'English'
     }
   });
@@ -232,13 +343,44 @@ test('default-model migration updates exact defaults and active nested settings 
   }), {});
 });
 
-test('default-model migration preserves custom and explicit non-default selections', () => {
+test('version 2 migration moves version-1 defaults and deprecated Gemini IDs only', () => {
+  assert.equal(MODEL_DEFAULTS_MIGRATION_VERSION, 2);
+  assert.deepEqual(buildModelDefaultsMigration({
+    modelDefaultsMigrationVersion: 1,
+    selectedProvider: 'gemini',
+    openaiModel: 'gpt-5.6-sol',
+    anthropicModel: 'claude-sonnet-5',
+    geminiModel: 'gemini-3.7-flash-high',
+    model: 'gemini-3.7-flash-high',
+    settings: { provider: 'gemini', model: 'gemini-3.7-flash-high' }
+  }), {
+    modelDefaultsMigrationVersion: 2,
+    openaiModel: 'gpt-6.1-sol',
+    anthropicModel: 'claude-sonnet-5-5',
+    geminiModel: 'gemini-3.8-flash-high',
+    model: 'gemini-3.8-flash-high',
+    settings: { provider: 'gemini', model: 'gemini-3.8-flash-high' }
+  });
+
+  // gpt-5.5 chosen explicitly after version 1 ran is no longer a former default.
+  assert.deepEqual(buildModelDefaultsMigration({
+    modelDefaultsMigrationVersion: 1,
+    openaiModel: 'gpt-5.5',
+    anthropicModel: 'claude-opus-5',
+    geminiModel: 'gemini-3.5-flash-high'
+  }), {
+    modelDefaultsMigrationVersion: 2,
+    geminiModel: 'gemini-3.6-flash-high'
+  });
+});
+
+test('model migration preserves custom and explicit non-default selections', () => {
   assert.deepEqual(buildModelDefaultsMigration({
     selectedProvider: 'openai',
     openaiModel: 'gpt-5.5',
     openaiCustomModel: 'gpt-custom',
     anthropicModel: 'claude-opus-4-8',
-    geminiModel: 'gemini-3.5-flash-high',
+    geminiModel: 'gemini-2.5-pro',
     model: 'gpt-5.5',
     customModel: 'gpt-custom',
     settings: { provider: 'openai', model: 'gpt-5.5' }

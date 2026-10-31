@@ -1,14 +1,28 @@
 // src/background/api/anthropic.js
 // Anthropic (Claude) API integration for translation and chat
 
-import { supportsTemperature } from '../../shared/utils.js';
-
 const ANTHROPIC_MESSAGES_ENDPOINT = "https://api.anthropic.com/v1/messages";
-export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5";
+// API version 2026-10-21 rejects temperature/top_p/top_k on every model, so requests never send them.
+const ANTHROPIC_API_VERSION = "2026-10-21";
+const ANTHROPIC_SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5";
+
+// Models that accept `fallbacks: "default"`, which re-runs a safety-classifier
+// refusal on Anthropic's recommended fallback model inside the same request.
+const SERVER_FALLBACK_MODELS = new Set([
+  "claude-fable-5-1",
+  "claude-opus-5-5",
+  "claude-opus-5",
+  "claude-sonnet-5-5"
+]);
+
+function getClaudeBaseModel(model) {
+  return (model || '').toLowerCase().replace(/-\d{8}$/, '');
+}
 
 export function isClaude5Model(model) {
   if (!model) return false;
-  return /^claude-(sonnet|opus|fable)-5(?:$|-)/i.test(model);
+  return /^claude-(sonnet|opus|fable|haiku)-5(?:$|-)/i.test(model);
 }
 
 export function isClaudeFable5Model(model) {
@@ -17,26 +31,32 @@ export function isClaudeFable5Model(model) {
 }
 
 /**
+ * Claude 5.5 models: thinking cannot be disabled (Opus 5.5 and Sonnet 5.5 reject
+ * `disabled`), so the thinking toggle maps to output_config.effort instead.
+ */
+export function usesClaudeEffortThinkingControl(model) {
+  if (!model) return false;
+  return /^claude-(sonnet|opus|haiku)-5-5(?:$|-)/i.test(model);
+}
+
+export function supportsAnthropicServerFallback(model) {
+  return SERVER_FALLBACK_MODELS.has(getClaudeBaseModel(model));
+}
+
+/**
  * Determine max tokens based on model.
  */
 export function getMaxTokensForModel(model) {
   if (!model) return 4096;
 
+  // Thinking tokens count toward max_tokens on Claude 5.x.
   if (isClaude5Model(model)) {
-    return 16384;
+    return 32000;
   }
 
   if (model.includes("claude-opus-4-8") || model.includes("claude-sonnet-4-6") ||
       model.includes("claude-sonnet-4-5") || model.includes("claude-opus-4-5") ||
       model.includes("claude-haiku-4-5")) {
-    return 8192;
-  }
-
-  if (model.includes("claude-3-7-sonnet")) {
-    return 64000;
-  }
-
-  if (model.includes("claude-3-5-sonnet") || model.includes("claude-3-5-haiku")) {
     return 8192;
   }
 
@@ -46,9 +66,10 @@ export function getMaxTokensForModel(model) {
 export function buildAnthropicRequestBody(
   prompt,
   model,
-  { stream = false, temperature = 0.1, settings = {} } = {}
+  { stream = false, settings = {} } = {}
 ) {
   const modelToUse = model || DEFAULT_ANTHROPIC_MODEL;
+  const thinkingEnabled = settings.anthropicThinkingEnabled === true;
   const requestBody = {
     model: modelToUse,
     messages: [{ role: "user", content: prompt }],
@@ -59,26 +80,33 @@ export function buildAnthropicRequestBody(
     requestBody.stream = true;
   }
 
-  if (isClaude5Model(modelToUse)) {
-    requestBody.thinking = isClaudeFable5Model(modelToUse) || settings.anthropicThinkingEnabled === true
+  if (usesClaudeEffortThinkingControl(modelToUse)) {
+    requestBody.thinking = { type: "adaptive" };
+    requestBody.output_config = { effort: thinkingEnabled ? "high" : "low" };
+  } else if (isClaude5Model(modelToUse)) {
+    requestBody.thinking = isClaudeFable5Model(modelToUse) || thinkingEnabled
       ? { type: "adaptive" }
       : { type: "disabled" };
   }
 
-  if (supportsTemperature(modelToUse)) {
-    requestBody.temperature = temperature;
+  if (supportsAnthropicServerFallback(modelToUse)) {
+    requestBody.fallbacks = "default";
   }
 
   return requestBody;
 }
 
-function getAnthropicHeaders(apiKey) {
-  return {
+export function getAnthropicHeaders(apiKey, requestBody = {}) {
+  const headers = {
     "Content-Type": "application/json",
     "x-api-key": apiKey,
-    "anthropic-version": "2023-06-01",
+    "anthropic-version": ANTHROPIC_API_VERSION,
     "anthropic-dangerous-direct-browser-access": "true"
   };
+  if (requestBody.fallbacks) {
+    headers["anthropic-beta"] = ANTHROPIC_SERVER_FALLBACK_BETA;
+  }
+  return headers;
 }
 
 function getRefusalExplanation(stopDetails) {
@@ -210,7 +238,7 @@ export async function fetchFromAnthropic(prompt, model, apiKey, settings = {}) {
   try {
     const response = await fetch(ANTHROPIC_MESSAGES_ENDPOINT, {
       method: "POST",
-      headers: getAnthropicHeaders(apiKey),
+      headers: getAnthropicHeaders(apiKey, requestBody),
       body: JSON.stringify(requestBody)
     });
 
@@ -241,7 +269,6 @@ export async function fetchFromAnthropicStreaming(
 
   const requestBody = buildAnthropicRequestBody(prompt, model, {
     stream: true,
-    temperature: 0.1,
     settings
   });
   console.log("Using Anthropic model:", requestBody.model);
@@ -249,7 +276,7 @@ export async function fetchFromAnthropicStreaming(
   try {
     const response = await fetch(ANTHROPIC_MESSAGES_ENDPOINT, {
       method: "POST",
-      headers: getAnthropicHeaders(apiKey),
+      headers: getAnthropicHeaders(apiKey, requestBody),
       body: JSON.stringify(requestBody),
       signal: abortSignal
     });
@@ -297,12 +324,11 @@ export async function fetchChatFromAnthropicStreaming(
 
   const requestBody = buildAnthropicRequestBody(prompt, model, {
     stream: true,
-    temperature: 0.7,
     settings
   });
   const response = await fetch(ANTHROPIC_MESSAGES_ENDPOINT, {
     method: "POST",
-    headers: getAnthropicHeaders(apiKey),
+    headers: getAnthropicHeaders(apiKey, requestBody),
     body: JSON.stringify(requestBody),
     signal: abortSignal
   });

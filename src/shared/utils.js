@@ -1,7 +1,7 @@
 // src/shared/utils.js
 // Shared utility functions used across background, content, and options scripts
 
-import { noTemperatureModels } from './constants.js';
+import { noTemperatureModels, imageTranslationModels, DEFAULT_IMAGE_TRANSLATION_MODEL } from './constants.js';
 
 // ========================================
 // MODEL CAPABILITY CHECKS
@@ -13,9 +13,10 @@ import { noTemperatureModels } from './constants.js';
 export function supportsTemperature(model) {
   if (!model) return true;
   const lowerModel = model.toLowerCase();
-  if (lowerModel.startsWith('gpt-5.6')) return false;
-  if (/^claude-(sonnet|opus|fable)-5(?:$|-)/.test(lowerModel)) return false;
-  if (lowerModel.startsWith('gemini-3')) return false;
+  // Anthropic API version 2026-10-21 rejects sampling parameters on every model,
+  // and Gemini deprecated them, so only older OpenAI models still take temperature.
+  if (lowerModel.startsWith('claude-') || lowerModel.startsWith('gemini-')) return false;
+  if (lowerModel.startsWith('gpt-5.6') || lowerModel.startsWith('gpt-6')) return false;
   return !noTemperatureModels.includes(lowerModel);
 }
 
@@ -25,6 +26,21 @@ export function supportsTemperature(model) {
 export function isGPT5Model(model) {
   if (!model) return false;
   return model.toLowerCase().startsWith('gpt-5');
+}
+
+/**
+ * Check if a model is a GPT-6 variant (GPT-6 Astra/Luna, GPT-6.1 Sol/Terra)
+ */
+export function isGPT6Model(model) {
+  if (!model) return false;
+  return model.toLowerCase().startsWith('gpt-6');
+}
+
+/**
+ * Check if an OpenAI model takes a reasoning effort setting
+ */
+export function isOpenAIReasoningModel(model) {
+  return isGPT5Model(model) || isGPT6Model(model);
 }
 
 /**
@@ -41,7 +57,8 @@ export function isGPT52Pro(model) {
 export function usesOpenAIResponsesApi(model) {
   if (!model) return false;
   const lowerModel = model.toLowerCase();
-  return lowerModel.startsWith('gpt-5.6') ||
+  return lowerModel.startsWith('gpt-6') ||
+    lowerModel.startsWith('gpt-5.6') ||
     lowerModel === 'gpt-5.5' ||
     lowerModel.startsWith('gpt-5.4') ||
     lowerModel === 'gpt-5.2-pro';
@@ -58,13 +75,13 @@ export function supportsNoneReasoningEffort(model) {
 }
 
 /**
- * Get the appropriate reasoning effort setting for a GPT-5 model
+ * Get the appropriate reasoning effort setting for a GPT-5 or GPT-6 model
  */
 export function getReasoningEffort(model, thinkingEnabled) {
   if (!model) return null;
   const lowerModel = model.toLowerCase();
   
-  if (!isGPT5Model(model)) {
+  if (!isOpenAIReasoningModel(model)) {
     return null;
   }
   
@@ -72,7 +89,8 @@ export function getReasoningEffort(model, thinkingEnabled) {
     return thinkingEnabled ? "high" : "medium";
   }
 
-  if (lowerModel.startsWith('gpt-5.6') || lowerModel === 'gpt-5.5' || lowerModel.startsWith('gpt-5.4')) {
+  // GPT-6 Astra and GPT-6.1 Sol have no 'none' level, so every current model uses low/medium.
+  if (isGPT6Model(model) || lowerModel.startsWith('gpt-5.6') || lowerModel === 'gpt-5.5' || lowerModel.startsWith('gpt-5.4')) {
     return thinkingEnabled ? "medium" : "low";
   }
   
@@ -92,12 +110,22 @@ export function isGemini3Model(model) {
 }
 
 /**
+ * Check if a Gemini model is configured with thinkingLevel (Gemini 3.x and 4.x)
+ * rather than the Gemini 2.5 thinkingBudget.
+ */
+export function usesGeminiThinkingLevel(model) {
+  if (!model) return false;
+  const lowerModel = model.toLowerCase();
+  return lowerModel.startsWith('gemini-3') || lowerModel.startsWith('gemini-4');
+}
+
+/**
  * Check if a Gemini model supports thinking configuration
  */
 export function supportsGeminiThinking(model) {
   if (!model) return false;
   const lowerModel = model.toLowerCase();
-  return lowerModel.startsWith('gemini-2.5') || lowerModel.startsWith('gemini-3');
+  return lowerModel.startsWith('gemini-2.5') || usesGeminiThinkingLevel(lowerModel);
 }
 
 /**
@@ -105,7 +133,14 @@ export function supportsGeminiThinking(model) {
  */
 export function isGemini25Or3Model(model) {
   if (!model) return false;
-  return model.startsWith('gemini-2.5') || model.startsWith('gemini-3');
+  return model.startsWith('gemini-2.5') || usesGeminiThinkingLevel(model);
+}
+
+/**
+ * Map a saved image translation model to a supported OpenAI image-edit model.
+ */
+export function normalizeImageTranslationModel(model) {
+  return imageTranslationModels.includes(model) ? model : DEFAULT_IMAGE_TRANSLATION_MODEL;
 }
 
 // ========================================
