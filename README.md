@@ -71,6 +71,7 @@ This project was developed with significant assistance from AI tools.  I mean, y
 * Image and video-frame translation now use GPT Image 2.5 Flare by default, with GPT Image 2.5 Sunburst selectable in the Image settings tab
 * Added Eleven v4 and Eleven v4 Turbo text-to-speech choices
 * Saved Gemini 3.7 Flash and 3.5 Flash choices move to Gemini 3.8 Flash and 3.6 Flash, which Google now routes them to
+* Fixed custom or unrecognized OpenAI model names failing with "'temperature' does not support 0.1 with this model"
 * Fixed selected-text translation, lessons, and questions doing nothing on pages that render text inside a shadow DOM (such as Yahoo! Auctions item descriptions)
 * Fixed translation notes, the Show Original button, and the Ask and Lesson panels being cut off inside collapsed comments (such as YouTube's "Read more") and fixed-height cards
 * Fixed only part of a multi-line selection being translated on pages that clear the selection on right-click (such as YouTube comments)

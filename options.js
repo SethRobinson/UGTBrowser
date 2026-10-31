@@ -1163,14 +1163,12 @@ function resetImagePromptToDefault() {
   }
 }
 
+// Mirrors supportsTemperature in src/shared/utils.js.
 function supportsTemperature(model) {
-  if (!model) return true;
+  if (!model) return false;
   const lowerModel = model.toLowerCase();
-  // Anthropic API version 2026-10-21 rejects sampling parameters on every model,
-  // and Gemini deprecated them, so only older OpenAI models still take temperature.
-  if (lowerModel.startsWith('claude-') || lowerModel.startsWith('gemini-')) return false;
-  if (lowerModel.startsWith('gpt-5.6') || lowerModel.startsWith('gpt-6')) return false;
-  return !noTemperatureModels.includes(lowerModel);
+  if (noTemperatureModels.includes(lowerModel)) return false;
+  return /^(gpt-4|gpt-3\.5|chatgpt-4o)/.test(lowerModel);
 }
 
 // Helper functions to check if models support thinking

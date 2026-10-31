@@ -11,13 +11,14 @@ import { noTemperatureModels, imageTranslationModels, DEFAULT_IMAGE_TRANSLATION_
  * Check if a model supports temperature settings
  */
 export function supportsTemperature(model) {
-  if (!model) return true;
+  if (!model) return false;
   const lowerModel = model.toLowerCase();
-  // Anthropic API version 2026-10-21 rejects sampling parameters on every model,
-  // and Gemini deprecated them, so only older OpenAI models still take temperature.
-  if (lowerModel.startsWith('claude-') || lowerModel.startsWith('gemini-')) return false;
-  if (lowerModel.startsWith('gpt-5.6') || lowerModel.startsWith('gpt-6')) return false;
-  return !noTemperatureModels.includes(lowerModel);
+  if (noTemperatureModels.includes(lowerModel)) return false;
+  // Current OpenAI models reject any non-default temperature, Anthropic API version
+  // 2026-10-21 rejects sampling parameters on every model, and Gemini deprecated
+  // them. Only older OpenAI chat models still accept one, so allowlist those rather
+  // than letting an unknown or custom model name receive it.
+  return /^(gpt-4|gpt-3\.5|chatgpt-4o)/.test(lowerModel);
 }
 
 /**
@@ -134,6 +135,45 @@ export function supportsGeminiThinking(model) {
 export function isGemini25Or3Model(model) {
   if (!model) return false;
   return model.startsWith('gemini-2.5') || usesGeminiThinkingLevel(model);
+}
+
+/**
+ * Pick an OpenAI image-edit output size near the minimum legal pixel budget that
+ * keeps the clicked image's aspect ratio (edges multiples of 16, ratio 1:3 to 3:1).
+ */
+export function chooseImageEditSize(width, height) {
+  const minPixels = 655360;
+  const maxPixels = 8294400;
+  const multiple = 16;
+
+  if (!width || !height) {
+    return 'auto';
+  }
+
+  let aspect = width / height;
+  aspect = Math.min(3, Math.max(1 / 3, aspect));
+
+  let targetWidth = Math.sqrt(minPixels * aspect);
+  let targetHeight = targetWidth / aspect;
+
+  const roundUpToMultiple = (value) => Math.max(multiple, Math.ceil(value / multiple) * multiple);
+  let outputWidth = roundUpToMultiple(targetWidth);
+  let outputHeight = roundUpToMultiple(targetHeight);
+
+  while (outputWidth * outputHeight < minPixels) {
+    if (outputWidth / outputHeight < aspect) {
+      outputWidth += multiple;
+    } else {
+      outputHeight += multiple;
+    }
+  }
+
+  while (outputWidth * outputHeight > maxPixels) {
+    outputWidth = Math.max(multiple, outputWidth - multiple);
+    outputHeight = Math.max(multiple, outputHeight - multiple);
+  }
+
+  return `${outputWidth}x${outputHeight}`;
 }
 
 /**

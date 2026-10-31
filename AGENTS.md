@@ -175,15 +175,17 @@ Current text defaults:
 - Anthropic defaults to `claude-sonnet-5-5`, with `claude-opus-5-5`, `claude-fable-5-1`, `claude-haiku-5-5`, and the Claude 5 and 4.x models selectable. Requests send `anthropic-version: 2026-10-21`, which rejects `temperature`/`top_p`/`top_k` on every model, so Anthropic requests never send sampling parameters. Opus 5.5 and Sonnet 5.5 reject `thinking: {type: "disabled"}`, so for the 5.5 models the thinking toggle maps to `output_config.effort` (low when off, high when on) with adaptive thinking; Sonnet 5 and Opus 5 keep the disabled/adaptive toggle; Fable 5 and 5.1 always use adaptive thinking and have a 30-day API data retention policy. Fable 5.1, Opus 5.5, Opus 5, and Sonnet 5.5 send `fallbacks: "default"` with the `server-side-fallback-2026-07-01` beta header so a safety-classifier refusal is retried server-side (Haiku 5.5 has no server-side fallback). Claude 5.x requests allow 32,000 output tokens because thinking counts toward `max_tokens`, and `stop_reason: refusal` is a user-visible error.
 - Gemini defaults to `gemini-3.8-flash-medium`, shown in settings as `Gemini 3.8 Flash (Medium)`. The low, medium, and high entries normalize to API model ID `gemini-3.8-flash` with the matching `thinkingConfig.thinkingLevel`; `gemini-3.6-flash-*` entries work the same way, and `gemini-4-argon` uses the thinking toggle (low/high). `gemini-3.5-flash-lite` uses fixed minimal thinking. Google deprecated Gemini 3.7 Flash and 3.5 Flash (routed to 3.8 and 3.6 Flash) and shut down 3 Pro Preview, so saved 3.7/3.5 variants resolve to the 3.8/3.6 variant at the same level and `gemini-3-pro-preview` to `gemini-3.1-pro-preview`. Gemini 2.5 Pro cannot disable thinking, so the disabled toggle uses its minimum supported budget of 128. Gemini requests send the key in the `x-goog-api-key` header (not the URL) and never send sampling parameters (deprecated by Google).
 
-GPT-5.2 Chat Completions requests must omit `temperature`; the API rejects non-default temperature when reasoning is enabled.
+`supportsTemperature()` (in both `src/shared/utils.js` and `options.js`) is an allowlist: only GPT-4.x, GPT-3.5, and `chatgpt-4o` models get `temperature`. Current OpenAI models (GPT-5.x, GPT-6.x) reject any non-default value with `Only the default (1) value is supported`, so an unknown or custom model name must never receive it.
 
 ## ElevenLabs TTS Models
 
 The settings page lists `eleven_multilingual_v2` (the default), `eleven_v4`, `eleven_v4_turbo`, `eleven_v3`, `eleven_flash_v2_5`, and `eleven_flash_v2`. Retired saved choices are normalized in both the settings UI and the request function: Turbo v2.5 to Flash v2.5, Turbo v2 and Monolingual v1 to Flash v2, and Multilingual v1 to Multilingual v2.
 
-Model migration is versioned by `modelDefaultsMigrationVersion` (currently 2) in `src/shared/model-migration.js`. Steps run in order for installs below each step's version, so a version-0 install chains through every step. OpenAI and Anthropic steps upgrade only exact former defaults and leave custom or other explicit model selections unchanged; the Gemini version 2 step also moves deprecated or shut-down IDs to the model Google routes them to. When adding a step, mirror any picker-visible Gemini renames in `legacyGeminiPickerModels` in `options.js`. Provider request and migration regression tests run with `npm test`.
+Model migration is versioned by `modelDefaultsMigrationVersion` (currently 2) in `src/shared/model-migration.js`. Steps run in order for installs below each step's version, so a version-0 install chains through every step. OpenAI and Anthropic steps upgrade only exact former defaults and leave custom or other explicit model selections unchanged; the Gemini version 2 step also moves deprecated or shut-down IDs to the model Google routes them to. When adding a step, mirror any picker-visible Gemini renames in `legacyGeminiPickerModels` in `options.js`. Provider request and migration regression tests run with `npm test`; live API regression tests run with `npm run test:live` (see `docs/live-provider-testing.md`).
 
 ## Build And Smoke Checks
+
+After changing anything under `src/background/`, the installed unpacked extension must be reloaded on `chrome://extensions`: the settings page loads fresh from disk, but the service worker keeps running old code until reload, and that mismatch produces bogus provider errors.
 
 Useful checks after edits:
 
@@ -197,6 +199,7 @@ node --check src/background/context-menus.js
 node --check src/background/api/openai.js
 node --check src/background/api/anthropic.js
 npm test
+npm run test:live
 npm run package
 ```
 
@@ -252,6 +255,7 @@ Do not use em-dashes (or en-dashes used as em-dashes) anywhere: README, docs, co
 
 ## Feature index
 
+- Live provider testing: `docs/live-provider-testing.md`, run with `npm run test:live`. Seth requires regression testing to include real API calls for every provider and model (text, image, TTS) whenever provider, model, or request code changes; unit tests alone are not enough. Keys come from the git-ignored `agents_secret.md`.
 - Page compatibility testing: `docs/page-corpus-testing.md`, run with `npm run test:pages` (live sites, about 15 minutes, not part of `npm test`). It drives headless Chrome over DevTools with a stubbed `chrome.runtime`; DevTools-created isolated worlds inherit page CSP and Trusted Types while real content scripts do not, so the harness bypasses CSP, and findings that only appear under CSP must be confirmed in the real extension.
 
 ## Agent Maintenance Rule

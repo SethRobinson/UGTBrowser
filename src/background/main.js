@@ -16,7 +16,7 @@ import {
   unifiedDefaultPrompt
 } from '../shared/constants.js';
 
-import { isRestrictedUrl, supportsTemperature, normalizeImageTranslationModel } from '../shared/utils.js';
+import { isRestrictedUrl, supportsTemperature, normalizeImageTranslationModel, chooseImageEditSize } from '../shared/utils.js';
 import { buildModelDefaultsMigration } from '../shared/model-migration.js';
 
 import { fetchFromOpenAI, fetchFromOpenAIStreaming } from './api/openai.js';
@@ -368,41 +368,6 @@ function buildVideoFrameTranslationPrompt(targetLanguage) {
     'Do not add subtitles, annotations, callouts, bounding boxes, JSON, coordinates, or side-by-side translations.',
     'Do not leave untranslated source-language text visible unless it is a proper noun, brand name, or intentionally untranslated title.'
   ].join(' ');
-}
-
-function chooseImageEditSize(width, height) {
-  const minPixels = 655360;
-  const maxPixels = 8294400;
-  const multiple = 16;
-
-  if (!width || !height) {
-    return 'auto';
-  }
-
-  let aspect = width / height;
-  aspect = Math.min(3, Math.max(1 / 3, aspect));
-
-  let targetWidth = Math.sqrt(minPixels * aspect);
-  let targetHeight = targetWidth / aspect;
-
-  const roundUpToMultiple = (value) => Math.max(multiple, Math.ceil(value / multiple) * multiple);
-  let outputWidth = roundUpToMultiple(targetWidth);
-  let outputHeight = roundUpToMultiple(targetHeight);
-
-  while (outputWidth * outputHeight < minPixels) {
-    if (outputWidth / outputHeight < aspect) {
-      outputWidth += multiple;
-    } else {
-      outputHeight += multiple;
-    }
-  }
-
-  while (outputWidth * outputHeight > maxPixels) {
-    outputWidth = Math.max(multiple, outputWidth - multiple);
-    outputHeight = Math.max(multiple, outputHeight - multiple);
-  }
-
-  return `${outputWidth}x${outputHeight}`;
 }
 
 function sendMessageToFrame(tabId, frameId, message) {

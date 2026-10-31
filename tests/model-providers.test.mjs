@@ -123,6 +123,17 @@ test('GPT-5.6 uses Responses with the preserved low and medium reasoning levels'
   );
 });
 
+test('custom and unknown OpenAI model names never receive temperature', () => {
+  // A saved custom model routed to Chat Completions used to get temperature 0.1,
+  // which current OpenAI models reject ("Only the default (1) value is supported").
+  for (const model of ['chat-latest', 'gpt-6.1-sol-2026-09-29', 'o4-mini', 'my-custom-model', '', undefined]) {
+    assert.equal(supportsTemperature(model), false, `model ${model}`);
+    assert.equal('temperature' in buildOpenAIChatCompletionsRequestBody('hi', model || 'x', false, 0.1), false);
+  }
+  assert.equal(supportsTemperature('gpt-4.1'), true);
+  assert.equal(buildOpenAIChatCompletionsRequestBody('hi', 'gpt-4.1', false, 0.1).temperature, 0.1);
+});
+
 test('GPT-5.2 chat requests omit unsupported temperature values', () => {
   assert.equal(supportsTemperature('gpt-5.2'), false);
   assert.deepEqual(
