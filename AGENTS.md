@@ -26,6 +26,9 @@ Scope policy: this file holds cross-cutting rules, workflows, and gotchas that m
 - Do not put secrets in commit messages, logs, issue text, pull request descriptions, generated docs, or other tracked files.
 - Before committing, review staged changes for accidental secrets.
 ## Computer Control
+- NEVER read, write, or clear the user's clipboard without asking first and
+  getting a yes in the current conversation (no `Set-Clipboard`, `clip`, or
+  clipboard grants). Put text to paste in a file and give its full path instead.
 - Never take over or control the user's desktop without express permission in
   the current request. This includes Computer Use, desktop UI automation,
   SendInput, clicking, typing, or any other mechanism that controls visible apps.
