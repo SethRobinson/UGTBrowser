@@ -17,7 +17,11 @@ npm run webstore -- submit
 - Listing text, screenshots, and privacy fields are not changed by the API scripts; edit those in the dashboard.
 - Submitting publishes to users after review, so only run `submit` when Seth has asked for the release.
 
-Item ID `ccpaaggcacbmdbjhclgggndopoekjfkc` and publisher ID `752d04bb-b577-435f-b081-44244e00a3c5` (from the dashboard URL) are set in `tools/webstore/common.mjs`; `CWS_PUBLISHER_ID` in `agents_secret.md` overrides the publisher.
+Item ID `ccpaaggcacbmdbjhclgggndopoekjfkc` is set in `tools/webstore/common.mjs`. The non-secret publisher ID from the dashboard URL lives in `tools/webstore/publisher-id.mjs` and is imported and re-exported by `common.mjs`; `CWS_PUBLISHER_ID` in `agents_secret.md` or the environment overrides the publisher.
+
+GitHub secret-scanning alert #1 labels this publisher ID as an OpenVSX access token. Reviewed on 2026-11-04 against the reported commit `973486d`: this is a false positive. `itemPath()` uses the ID only to identify the publisher in the Chrome Web Store URL; `getAccessToken()` obtains a separate Google OAuth token used in the Authorization header. This matches [Google's API documentation](https://developer.chrome.com/docs/webstore/using-api/). The publisher ID needs no rotation or removal. At Seth's request, alert #1 was closed as `false_positive` through the GitHub API under `SethRobinson` on 2026-11-04, with the verification explanation.
+
+`.github/secret_scanning.yml` excludes only `tools/webstore/publisher-id.mjs`. GitHub [automatically closes alerts for excluded paths and excludes them from push protection](https://docs.github.com/en/code-security/how-tos/secure-your-secrets/customize-leak-detection/exclude-folders-and-files). Keep that module limited to the non-secret publisher identifier, and reference it instead of duplicating its literal value elsewhere. The OAuth helpers and all other files remain covered by secret scanning. This configuration takes effect on GitHub once pushed.
 
 ## One-time credential setup (done by Seth)
 

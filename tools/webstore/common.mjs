@@ -5,13 +5,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_PUBLISHER_ID } from './publisher-id.mjs';
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const secretFile = join(repoRoot, 'agents_secret.md');
 
 // Not secrets: the store item and the publisher that owns it.
 export const ITEM_ID = 'ccpaaggcacbmdbjhclgggndopoekjfkc';
-export const DEFAULT_PUBLISHER_ID = '752d04bb-b577-435f-b081-44244e00a3c5';
+export { DEFAULT_PUBLISHER_ID };
 export const API_ROOT = 'https://chromewebstore.googleapis.com';
 export const SCOPE = 'https://www.googleapis.com/auth/chromewebstore';
 
